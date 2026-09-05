@@ -12,6 +12,7 @@ import {
   AttributeKey,
   SKILLS,
   SKILL_CREATE_CAP,
+  SKILL_FREE_POINTS,
   SkillDef,
   SIZES,
   SizeKey,
@@ -310,8 +311,15 @@ function DerivedPreview({ ch }: { ch: CharacterData }) {
 
 function StepSkills({ ch, patch, next, prev }: { ch: CharacterData; patch: (fn: (c: CharacterData) => void) => void; next: () => void; prev: () => void }) {
   const [pools, setPools] = useState<Record<AttrCategory, number>>({ 生理: 6, 心智: 5, 互动: 4 });
-  const hasSpecialIdentity = ch.feats.some((f) => f.name === "特殊身份");
-  const cap = hasSpecialIdentity ? 5 : SKILL_CREATE_CAP;
+  // 特殊身份(高级覆盖低级):效果按实际购买的等级各自生效
+  const specialLv = (ch.feats.find((f) => f.name === "特殊身份")?.levels ?? []) as number[];
+  const has1 = specialLv.includes(1);
+  const has2 = specialLv.includes(2);
+  const has3 = specialLv.includes(3);
+  const bonusFree = (has2 ? 2 : 0) + (has3 ? 2 : 0);
+  const freeTotal = SKILL_FREE_POINTS + bonusFree;
+  const designated = ch.specialIdentitySkill ?? "";
+  const capOf = (skillName: string) => (has1 && skillName === designated ? 5 : SKILL_CREATE_CAP);
 
   const spendByCat = useMemo(() => {
     const byCat: Record<string, number> = { 生理: 0, 心智: 0, 互动: 0 };
@@ -326,7 +334,7 @@ function StepSkills({ ch, patch, next, prev }: { ch: CharacterData; patch: (fn: 
   for (const cat of ATTR_CATEGORIES) {
     freeUsed += Math.max(0, spendByCat[cat] - pools[cat]);
   }
-  const freeLeft = 5 - freeUsed;
+  const freeLeft = freeTotal - freeUsed;
 
   // 免费专业:3/4级技能各1个 + 3个自由
   const earnedFree = SKILLS.filter((s) => (ch.skills[s.name] ?? 0) >= 3).length;
@@ -365,9 +373,24 @@ function StepSkills({ ch, patch, next, prev }: { ch: CharacterData; patch: (fn: 
           </label>
         ))}
         <span className={`text-xs font-bold ${freeLeft < 0 ? "text-red-400" : "text-emerald-400"}`}>
-          自由点剩余 {freeLeft}/5
+          自由点剩余 {freeLeft}/{freeTotal}
         </span>
-        {hasSpecialIdentity && <span className="text-xs text-amber-400">特殊身份:一项技能可到5级</span>}
+        {has1 && (
+          <label className="text-xs text-amber-400 flex items-center gap-1">
+            特殊身份1级·指定技能(上限5):
+            <select
+              value={designated}
+              onChange={(e) => patch((c) => { c.specialIdentitySkill = e.target.value; })}
+              className="bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5"
+            >
+              <option value="">(选择技能)</option>
+              {SKILLS.map((s) => <option key={s.name} value={s.name}>{s.name}</option>)}
+            </select>
+          </label>
+        )}
+        {has2 && <span className="text-xs text-amber-400">特殊身份2级:+2自由技能点</span>}
+        {has3 && <span className="text-xs text-amber-400">特殊身份3级:+2自由技能点(两项技能各+1,上限4)</span>}
+        {!specialLv.length && <span className="text-xs text-zinc-500">购买特殊身份后在此显示其效果</span>}
       </div>
 
       {ATTR_CATEGORIES.map((cat) => (
@@ -375,7 +398,7 @@ function StepSkills({ ch, patch, next, prev }: { ch: CharacterData; patch: (fn: 
           <div className="text-xs font-bold text-indigo-400 mb-1">{cat}系</div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
             {SKILLS.filter((s) => s.category === cat).map((s) => (
-              <SkillCell key={s.name} def={s} ch={ch} cap={cap} patch={patch} />
+              <SkillCell key={s.name} def={s} ch={ch} cap={capOf(s.name)} patch={patch} />
             ))}
           </div>
         </div>
@@ -480,14 +503,26 @@ function StepFeats({ ch, patch, next, prev }: { ch: CharacterData; patch: (fn: (
   const addFeat = (e: FeatEntry, targetLevel?: number) => {
     patch((c) => {
       const cur = c.feats.find((f) => f.name === e.name);
-      const owned = cur?.level ?? 0;
-      // 特殊身份:可购买任意未持有等级;起始>1:可从起始级直接买;常规:逐级
-      const nextLv = targetLevel ?? (owned >= e.startLevel ? owned + 1 : e.startLevel);
-      if (nextLv > e.maxLevel || nextLv <= owned) return;
-      const cost = featTotalCost(nextLv, e) - featTotalCost(owned, e);
+      const isSpecial = e.name === "特殊身份";
+      const ownedLv = cur?.level ?? 0;
+      // 特殊身份:可购买任意未持有等级(记录到 levels);起始>1:可从起始级直接买;常规:逐级
+      const nextLv = targetLevel ?? (ownedLv >= e.startLevel ? ownedLv + 1 : e.startLevel);
+      if (nextLv > e.maxLevel) return;
+      if (isSpecial && cur?.levels?.includes(nextLv)) return;
+      if (!isSpecial && nextLv <= ownedLv) return;
+      const cost = featTotalCost(nextLv, e) - featTotalCost(ownedLv, e);
       if (cost > left) return;
-      if (cur) cur.level = nextLv;
-      else c.feats.push({ name: e.name, category: e.category as CharacterData["feats"][0]["category"], level: nextLv });
+      if (cur) {
+        cur.level = Math.max(cur.level, nextLv);
+        if (isSpecial) cur.levels = [...(cur.levels ?? []), nextLv].sort((a, b) => a - b);
+      } else {
+        c.feats.push({
+          name: e.name,
+          category: e.category as CharacterData["feats"][0]["category"],
+          level: nextLv,
+          levels: isSpecial ? [nextLv] : undefined,
+        });
+      }
     });
   };
 
@@ -539,8 +574,11 @@ function StepFeats({ ch, patch, next, prev }: { ch: CharacterData; patch: (fn: (
           const owned = ch.feats.find((f) => f.name === e.name);
           const battleLocked = e.battle && !hasSpecialIdentity;
           const nextCost = featTotalCost((owned?.level ?? 0) + 1, e) - featTotalCost(owned?.level ?? 0, e);
-          const maxed = (owned?.level ?? 0) >= e.maxLevel;
           const isSpecial = e.name === "特殊身份";
+          // 特殊身份:所有等级都购入才算满(可分别购买,高级覆盖低级)
+          const maxed = isSpecial
+            ? (owned?.levels?.length ?? 0) >= e.maxLevel
+            : (owned?.level ?? 0) >= e.maxLevel;
           const nextLv = isSpecial || (e.startLevel ?? 1) > 1
             ? Math.max(owned?.level ?? 0, 0) + 1 <= e.startLevel
               ? e.startLevel
@@ -559,8 +597,27 @@ function StepFeats({ ch, patch, next, prev }: { ch: CharacterData; patch: (fn: (
               <div className="shrink-0 flex gap-1">
                 {maxed ? (
                   <span className="text-xs text-zinc-500 px-2 py-1">已满</span>
-                ) : isSpecial || (e.startLevel ?? 1) > 1 ? (
-                  // 特殊身份/起始>1:列出可购等级(每级显示增量花费)
+                ) : isSpecial ? (
+                  // 特殊身份:每个未购买等级一个按钮(高级覆盖低级,费用累计)
+                  Array.from({ length: e.maxLevel }, (_, k) => k + 1)
+                    .filter((lv) => !(owned?.levels ?? []).includes(lv))
+                    .map((lv) => {
+                      const prevMax = Math.max(owned?.level ?? 0, 0);
+                      const cost = featTotalCost(Math.max(lv, prevMax), e) - featTotalCost(prevMax, e);
+                      return (
+                        <button
+                          key={lv}
+                          disabled={battleLocked || e.exotic || cost > left}
+                          onClick={() => addFeat(e, lv)}
+                          className="text-xs px-2 py-1 rounded bg-zinc-800 hover:bg-indigo-600 disabled:opacity-30"
+                          title={lv > prevMax + 1 ? "跳级购买:需支付低级价格(高级覆盖低级效果)" : undefined}
+                        >
+                          {lv}级(费{cost})
+                        </button>
+                      );
+                    })
+                ) : (e.startLevel ?? 1) > 1 ? (
+                  // 起始>1:列出可购等级(每级显示增量花费)
                   Array.from({ length: e.maxLevel - (owned?.level ?? 0) }, (_, k) => (owned?.level ?? 0) + 1 + k)
                     .filter((lv) => lv >= e.startLevel)
                     .map((lv) => {

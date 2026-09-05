@@ -174,7 +174,7 @@ export interface CharacterData {
   attrComponents: Partial<Record<AttributeKey, { intrinsic: number; cultivation: number }>>;
   skills: Record<string, number>;
   specialties: Record<string, string[]>;
-  feats: { name: string; category: FeatCategory; level: number }[];
+  feats: { name: string; category: FeatCategory; level: number; levels?: number[] }[];
   flaws: { name: string; points: number }[];
   quirks: string[];
   talents: { name: string; level: number }[];
@@ -187,6 +187,8 @@ export interface CharacterData {
   moves: Partial<Record<MoveSlot, string>>;
   /** 防御预设(官方卡"防御预设"段;基础防御由引擎计算) */
   defensePreset: DefensePreset;
+  /** 特殊身份1级:指定一项技能(建卡上限5) */
+  specialIdentitySkill?: string;
   /** 各资源类别的施法者职能(官方卡"能力段") */
   casterFunctions: Record<string, string>;
   /** 物品表格(名称/数量/价格/效果/剩余) */
@@ -363,7 +365,14 @@ export function attrTotal(c: CharacterData, key: AttributeKey): number {
 /** 兼容旧存档:补齐缺省字段 */
 export function normalizeCharacter(c: Partial<CharacterData> & { id: string; name: string }): CharacterData {
   const base = emptyCharacter(c.id, c.name);
-  return { ...base, ...c, attrComponents: c.attrComponents ?? {} };
+  const merged: CharacterData = { ...base, ...c, attrComponents: c.attrComponents ?? {} };
+  // 特殊身份:记录实际购买的等级(高级覆盖低级,效果按已购等级各自生效)
+  for (const f of merged.feats) {
+    if (f.name === "特殊身份" && !f.levels?.length) {
+      f.levels = [f.level];
+    }
+  }
+  return merged;
 }
 
 // ---------------- 衍生属性 ----------------

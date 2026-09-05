@@ -131,7 +131,14 @@ export default function CharacterSheet() {
       </CardSection>
 
       {/* ═══ 技能段 ═══ */}
-      <CardSection title="技能段" note="DP=属性+技能+专业;5/7/9/11/13/15 级各 +1 附加成功">
+      <CardSection
+        title="技能段"
+        note={
+          ch.specialIdentitySkill
+            ? `DP=属性+技能+专业;特殊身份1级指定:${ch.specialIdentitySkill}(建卡上限5)`
+            : "DP=属性+技能+专业;5/7/9/11/13/15 级各 +1 附加成功"
+        }
+      >
         <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-0.5">
           {ATTR_CATEGORIES.map((cat) => (
             <div key={cat}>
