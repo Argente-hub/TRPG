@@ -4,13 +4,13 @@ import { rollPool, RollResult } from "../engine/dice";
 import {
   ATTRIBUTES,
   ATTR_CATEGORIES,
-  SKILLS,
   skillBonusSuccesses,
   untrainedPenalty,
   subSkillBaseOf,
   skillDisplayName,
   skillCategoryOf,
 } from "../engine/character";
+import { rulesOf } from "../engine/rules";
 import { aggregateDpBonuses } from "../engine/bonus";
 
 interface RollLogItem {
@@ -39,13 +39,15 @@ export default function Dice() {
   const [history, setHistory] = useState<RollLogItem[]>([]);
   const [last, setLast] = useState<RollLogItem | null>(null);
 
-  const skillDef = SKILLS.find((s) => s.name === skill);
+  const cfg = rulesOf(ch?.rules);
+  const skillList = cfg.skills;
+  const skillDef = skillList.find((s) => s.name === skill);
   const skillCat = skillDef?.category ?? (subSkillBaseOf(skill) ? skillCategoryOf(skill) : null);
   const skillLevel = ch?.skills[skill] ?? 0;
   const attrValue = ch?.attributes[attr as keyof typeof ch.attributes] ?? 0;
 
-  // 未受训惩罚
-  const untrained = skillLevel === 0 && skillCat ? untrainedPenalty(skillCat) : null;
+  // 未受训惩罚(3.25 按三系;RM 无此规则)
+  const untrained = cfg.hasUntrainedPenalty && skillLevel === 0 && skillCat ? untrainedPenalty(skillCat) : null;
 
   const dpBreakdown = useMemo(() => {
     const parts: string[] = [];
@@ -63,7 +65,7 @@ export default function Dice() {
     let pool = (ch ? attrValue + skillLevel : 0) + agg.total;
     if (useWillpower) pool += 3; // 完美加值,叠加一切
 
-    const bs = (ch ? bonusSuccesses : 0) + (ch ? skillBonusSuccesses(skillLevel) : 0);
+    const bs = (ch ? bonusSuccesses : 0) + (ch ? skillBonusSuccesses(skillLevel, ch.rules) : 0);
     const result = rollPool({ pool, again, bonusSuccesses: bs });
 
     let natural = result.natural;
@@ -129,7 +131,7 @@ export default function Dice() {
             <select value={skill} onChange={(e) => setSkill(e.target.value)} className="mt-1 w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-sm">
               {ATTR_CATEGORIES.map((cat) => (
                 <optgroup key={cat} label={`${cat}系`}>
-                  {SKILLS.filter((s) => s.category === cat).map((s) => (
+                  {skillList.filter((s) => s.category === cat).map((s) => (
                     <option key={s.name} value={s.name}>{s.name}({ch?.skills[s.name] ?? 0})</option>
                   ))}
                 </optgroup>

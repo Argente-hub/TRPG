@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   useResourceIndex,
   loadResourceChunk,
+  useRulebookVersion,
+  useRuleVersions,
   ResourceEntry,
   ResourceIndexEntry,
 } from "../lib/data";
@@ -34,7 +36,9 @@ function priceLabel(price?: string | null): string {
 const RANKS = ["S", "A", "B", "C", "D", "无支线"];
 
 export default function Codex() {
-  const index = useResourceIndex();
+  const versions = useRuleVersions();
+  const [versionId, selectVersion] = useRulebookVersion();
+  const index = useResourceIndex(versionId);
   const customStore = useCustomResources();
   const customEntries = customStore.entries;
   const [showImport, setShowImport] = useState(false);
@@ -46,6 +50,12 @@ export default function Codex() {
   const [showCustom, setShowCustom] = useState(true);
   const { characters, activeId, update } = useCharacters();
   const activeCh = characters.find((c) => c.id === activeId);
+
+  // 切换规则书:分类与详情基于旧版本的筛选失效,重置
+  useEffect(() => {
+    setCategory("全部");
+    setDetail(null);
+  }, [versionId]);
 
   const allEntries = useMemo(() => {
     const custom: ResourceIndexEntry[] = customEntries.map((c) => ({
@@ -85,7 +95,7 @@ export default function Codex() {
       if (found) setDetail({ ...found, toc: found.name, file: "(自定义导入)", path: [found.category, "自定义"] });
       return;
     }
-    const chunk = await loadResourceChunk(e.path[0] ?? "其他");
+    const chunk = await loadResourceChunk(versionId, e.path[0] ?? "其他");
     const found = chunk?.entries.find((x) => x.id === e.id);
     if (found) setDetail(found);
   };
@@ -195,10 +205,23 @@ export default function Codex() {
   return (
     <div className="max-w-6xl mx-auto p-6">
       <div className="mb-4">
-        <h1 className="text-xl font-bold">资料库</h1>
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="text-xl font-bold">资料库</h1>
+          <select
+            value={versionId}
+            onChange={(e) => selectVersion(e.target.value)}
+            className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs font-bold"
+            title="切换规则书版本(规则书页同步切换)"
+          >
+            {versions.map((v) => (
+              <option key={v.id} value={v.id}>📘 {v.label}</option>
+            ))}
+            {versions.length === 0 && <option>加载中…</option>}
+          </select>
+        </div>
         <p className="text-xs text-zinc-500 mt-1">
           {index
-            ? `内置 ${index.count} 条 + 自定义 ${customEntries.length} 条资源(血统/改造/瞳术/称号/流派/典籍/技艺/物品/法术/修炼体系/随从)`
+            ? `《${versions.find((v) => v.id === versionId)?.label ?? versionId}》内置 ${index.count} 条 + 自定义 ${customEntries.length} 条资源(${(index.chunks ?? []).map((c) => c.category).join("/")})`
             : "加载中…"}
         </p>
       </div>

@@ -6,7 +6,6 @@ import {
   ATTR_CATEGORIES,
   AttributeKey,
   CharacterData,
-  SKILLS,
   skillBonusSuccesses,
   skillCategoryOf,
   skillDisplayName,
@@ -19,6 +18,7 @@ import {
   EquipmentSlot,
 } from "../engine/character";
 import { DP_BONUS_TYPES, DEFENSE_SLOTS } from "../engine/bonus";
+import { rulesOf } from "../engine/rules";
 
 /** 官方人物卡的八类资源标签 */
 const RESOURCE_TAGS = ["血统", "改造", "瞳术", "称号", "流派", "魔导书", "修炼体系", "物品"] as const;
@@ -43,6 +43,8 @@ export default function CharacterSheet() {
     );
   }
   const patch = (fn: (c: CharacterData) => void) => update(ch.id, fn);
+  const cfg = rulesOf(ch.rules);
+  const isRM = cfg.id === "rm";
   const d = deriveStats(ch);
 
   const tagCounts: Record<string, number> = {};
@@ -62,14 +64,14 @@ export default function CharacterSheet() {
               onChange={(e) => patch((c) => { c.name = e.target.value; })}
               className="text-2xl font-bold bg-transparent border-none focus:outline-none focus:bg-zinc-900 rounded px-1 w-64"
             />
-            <div className="text-xs text-zinc-600 mt-0.5">星光无限 3.x 人物卡</div>
+            <div className="text-xs text-zinc-600 mt-0.5">{isRM ? "核心规则 RM███ 人物卡" : "星光无限 3.x 人物卡"}</div>
           </div>
           <div className="flex items-center gap-2">
             <div className="bg-amber-900/30 border border-amber-800/50 rounded px-3 py-1.5 text-center">
               <div className="text-[11px] text-zinc-400">钱包</div>
               <div className="font-bold text-amber-300">{ch.ledger?.points ?? 0}分 + {ch.ledger?.xp ?? 0}XP</div>
             </div>
-            <button onClick={() => nav("/realm")} className="px-3 py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-xs">轮回之境账本</button>
+            <button onClick={() => nav("/realm")} className="px-3 py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-xs">{cfg.terms.realm}账本</button>
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5 mt-3">
@@ -137,8 +139,10 @@ export default function CharacterSheet() {
         title="技能段"
         note={
           ch.specialIdentitySkill
-            ? `DP=属性+技能+专业;特殊身份1级指定:${ch.specialIdentitySkill}(建卡上限5)`
-            : "DP=属性+技能+专业;5/7/9/11/13/15 级各 +1 附加成功"
+            ? `DP=属性+技能+专业;特殊身份1级指定:${ch.specialIdentitySkill}(建卡上限${cfg.specialIdentitySkillCap})`
+            : isRM
+              ? "DP=属性+技能+专业;5/10/11/13/15 级各 +1 附加成功"
+              : "DP=属性+技能+专业;5/7/9/11/13/15 级各 +1 附加成功"
         }
       >
         <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-0.5">
@@ -156,7 +160,7 @@ export default function CharacterSheet() {
                       <div key={name} className={`flex items-center gap-2 rounded px-2 py-1 text-sm border ${lv > 0 ? "border-zinc-700 bg-zinc-900/70" : "border-zinc-800/60 bg-zinc-900/30 text-zinc-500"}`}>
                         <span>{skillDisplayName(name)}</span>
                         <span className={`font-bold ${lv > 0 ? "text-indigo-300" : ""}`}>{lv}</span>
-                        {skillBonusSuccesses(lv) > 0 && <span className="text-amber-400 text-[10px]">+{skillBonusSuccesses(lv)}附</span>}
+                        {skillBonusSuccesses(lv, ch.rules) > 0 && <span className="text-amber-400 text-[10px]">+{skillBonusSuccesses(lv, ch.rules)}附</span>}
                         <span className="text-xs text-zinc-500 truncate ml-auto" title={specs.join("、")}>
                           {specs.length > 0 ? `专业:${specs.join("、")}` : "专业:"}
                         </span>
@@ -187,13 +191,21 @@ export default function CharacterSheet() {
       <CardSection title="衍生属性段" note="公式与官方人物卡一致">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1 text-sm">
           <Formula label="体积" value={`${ch.size}(官方体积值见规则书体型表)`} />
-          <Formula label="先攻" value={`敏捷(${d.attrTotals["敏捷"]})+沉着(${d.attrTotals["沉着"]})+传奇沉着(${d.legend["沉着"]})×3 = 1d10+${d.initiative}`} />
+          <Formula label="先攻" value={isRM
+            ? `敏捷(${d.attrTotals["敏捷"]})+沉着(${d.attrTotals["沉着"]})+传奇沉着(${d.legend["沉着"]}) = 1d10+${d.initiative}`
+            : `敏捷(${d.attrTotals["敏捷"]})+沉着(${d.attrTotals["沉着"]})+传奇沉着(${d.legend["沉着"]})×3 = 1d10+${d.initiative}`} />
           <Formula label="敏感范围" value={`感知(${d.attrTotals["感知"]})×10+传奇感知(${d.legend["感知"]})×20 = ${d.sensitiveRange}米`} />
-          <Formula label="意志力基础用法" value={`传奇风度(${d.legend["风度"]})×2+3 = ${d.willpowerBaseUses}点`} />
-          <Formula label="意志力" value={`决心(${d.attrTotals["决心"]})+沉着(${d.attrTotals["沉着"]})+传奇决心(${d.legend["决心"]})×3 = ${d.willpowerMax}点`} />
-          <Formula label="基础移动速度" value={`力量(${d.attrTotals["力量"]})+敏捷(${d.attrTotals["敏捷"]})+体积 = ${d.speed}米`} />
+          {d.willpowerBaseUses > 0 && (
+            <Formula label="意志力基础用法" value={`传奇风度(${d.legend["风度"]})×2+3 = ${d.willpowerBaseUses}点`} />
+          )}
+          <Formula label="意志力" value={isRM
+            ? `决心(${d.attrTotals["决心"]})+沉着(${d.attrTotals["沉着"]})+传奇决心(${d.legend["决心"]})+传奇沉着(${d.legend["沉着"]}) = ${d.willpowerMax}点`
+            : `决心(${d.attrTotals["决心"]})+沉着(${d.attrTotals["沉着"]})+传奇决心(${d.legend["决心"]})×3 = ${d.willpowerMax}点`} />
+          <Formula label="基础移动速度" value={isRM
+            ? `力量(${d.attrTotals["力量"]})+敏捷(${d.attrTotals["敏捷"]})+体积+传奇敏捷(${d.legend["敏捷"]})×3 = ${d.speed}米`
+            : `力量(${d.attrTotals["力量"]})+敏捷(${d.attrTotals["敏捷"]})+体积 = ${d.speed}米`} />
           <Formula label="生命值" value={`体积+耐力(${d.attrTotals["耐力"]})+传奇耐力×(传奇+1)/2 = ${d.hp}点`} />
-          <Formula label="基础防御" value={`min(敏捷,感知)+传奇敏+传奇感 = ${d.baseDefense}`} />
+          <Formula label="基础防御" value={isRM ? `min(敏捷,感知) = ${d.baseDefense}` : `min(敏捷,感知)+传奇敏+传奇感 = ${d.baseDefense}`} />
         </div>
         <div className="grid grid-cols-3 gap-2 mt-2">
           {(["意志", "反射", "强韧"] as const).map((k) => (
@@ -202,7 +214,11 @@ export default function CharacterSheet() {
               <div className="text-zinc-500 mt-0.5">
                 {d.saves[k].formula}+专业 = <span className="text-zinc-300">{d.attrTotals[d.saves[k].attr]}+技能等级</span>
               </div>
-              {d.saves[k].perfect > 0 && <div className="text-amber-400">+[完美]{d.saves[k].perfect}DP(传奇{d.saves[k].attr}×3)</div>}
+              {d.saves[k].perfect > 0 && (
+                <div className="text-amber-400">
+                  +{d.saves[k].perfectNote ?? `[完美]${d.saves[k].perfect}DP(传奇${d.saves[k].attr}×3)`}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -529,7 +545,7 @@ function AttackPresetEditor({ ch, patch }: { ch: CharacterData; patch: (fn: (c: 
       <div className="flex flex-wrap gap-2 items-center">
         <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="招式名" className="bg-zinc-950 border border-zinc-700 rounded px-2 py-1.5 w-28" />
         <Sel value={f.attr} onChange={(v) => setF({ ...f, attr: v })} options={Object.values(ATTRIBUTES).flat()} />
-        <Sel value={f.skill} onChange={(v) => setF({ ...f, skill: v })} options={SKILLS.map((s) => s.name)} />
+        <Sel value={f.skill} onChange={(v) => setF({ ...f, skill: v })} options={rulesOf(ch.rules).skills.map((s) => s.name)} />
         <Num label="武器伤害" value={f.weaponDamage} onChange={(v) => setF({ ...f, weaponDamage: v })} />
         <Num label="上限(0=自动)" value={f.cap} onChange={(v) => setF({ ...f, cap: v })} />
         <Num label="附加成功" value={f.bonusSuccesses} onChange={(v) => setF({ ...f, bonusSuccesses: v })} />

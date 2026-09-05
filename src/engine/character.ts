@@ -1,7 +1,11 @@
 /**
  * 角色与建卡规则(《一步一步的创建你的角色》《属性概述》《技能概述》《专长概述》)。
+ * 版本差异(属性基值/技能上限/专长模型/衍生公式)见 engine/rules.ts 的 RULES 配置。
  */
 import { legendRank, legendTriangle } from "./math";
+import type { RulesVersion } from "./rules";
+
+export type { RulesVersion };
 
 export const ATTR_CATEGORIES = ["生理", "心智", "互动"] as const;
 export type AttrCategory = (typeof ATTR_CATEGORIES)[number];
@@ -60,6 +64,8 @@ export interface SkillDef {
   desc?: string;
   /** 子分类技能(手艺/表达),按子技能分别学习 */
   sub?: boolean;
+  /** 仅 RM 版(弓箭) */
+  rmOnly?: boolean;
 }
 
 /** 21 项技能(生理8/心智7/互动6) */
@@ -72,6 +78,7 @@ export const SKILLS: SkillDef[] = [
   { name: "隐藏", category: "生理", attrs: ["敏捷"], desc: "躲藏与潜行" },
   { name: "求生", category: "生理", attrs: ["感知"], desc: "野外生存、追踪、方向感" },
   { name: "白刃", category: "生理", attrs: ["力量"], desc: "冷兵器近战" },
+  { name: "弓箭", category: "生理", attrs: ["敏捷"], desc: "弓弩类远程攻击(仅核心规则RM版)", rmOnly: true },
   { name: "学识", category: "心智", attrs: ["智力"], desc: "综合性知识" },
   { name: "电脑", category: "心智", attrs: ["智力"], desc: "计算机操作、编程、黑客" },
   { name: "手艺", category: "心智", attrs: ["智力", "感知"], desc: "按子分类分别学习(如手艺-爆炸物)", sub: true },
@@ -97,9 +104,9 @@ export function skillRaiseCost(current: number): number {
   return current >= 3 ? 2 : 1;
 }
 
-/** 技能附加成功:5/7/9/11/13/15 级各 +1(最多 6 个)。 */
-export function skillBonusSuccesses(level: number): number {
-  const thresholds = [5, 7, 9, 11, 13, 15];
+/** 技能附加成功:3.25 为 5/7/9/11/13/15 级各 +1(最多 6 个);RM 为 5/10/11/13/15(最多 5 个)。 */
+export function skillBonusSuccesses(level: number, version: RulesVersion | string | undefined = "3.25"): number {
+  const thresholds = version === "rm" ? [5, 10, 11, 13, 15] : [5, 7, 9, 11, 13, 15];
   return thresholds.filter((t) => level >= t).length;
 }
 
@@ -177,6 +184,8 @@ export function skillDisplayName(name: string): string {
 export interface CharacterData {
   id: string;
   name: string;
+  /** 角色遵循的规则书版本(旧档默认 3.25) */
+  rules?: RulesVersion;
   /** 概念段(官方人物卡字段) */
   concept: string;
   gender: string;
@@ -188,6 +197,8 @@ export interface CharacterData {
   languages: string;
   appearance: string;
   personality: string;
+  /** 美德/恶德或角色特性(核心规则RM概念段) */
+  virtueVice?: string;
   size: SizeKey;
   attributes: Record<AttributeKey, number>;
   /** 属性加值渠道:内在(血统/改造)与修行(称号/流派) */
@@ -334,12 +345,15 @@ export function emptyLedger(): Ledger {
   return { missions: { D: 0, C: 0, B: 0, A: 0, S: 0 }, points: 0, xp: 0, history: [] };
 }
 
-export function emptyCharacter(id: string, name: string): CharacterData {
+export function emptyCharacter(id: string, name: string, rules: RulesVersion = "3.25"): CharacterData {
   const attrs = {} as Record<AttributeKey, number>;
-  for (const k of ATTRIBUTE_KEYS) attrs[k] = ATTR_BASE;
+  // 属性基础值:3.25 为 2,RM 为 1(见 rules.ts,内联避免循环导入)
+  const base = rules === "rm" ? 1 : ATTR_BASE;
+  for (const k of ATTRIBUTE_KEYS) attrs[k] = base;
   return {
     id,
     name,
+    rules,
     concept: "",
     gender: "",
     age: "",
@@ -384,7 +398,7 @@ export function attrTotal(c: CharacterData, key: AttributeKey): number {
 
 /** 兼容旧存档:补齐缺省字段 */
 export function normalizeCharacter(c: Partial<CharacterData> & { id: string; name: string }): CharacterData {
-  const base = emptyCharacter(c.id, c.name);
+  const base = emptyCharacter(c.id, c.name, c.rules ?? "3.25");
   const merged: CharacterData = { ...base, ...c, attrComponents: c.attrComponents ?? {} };
   // 旧档迁移:专业键 "手艺-X"/"表达-X" → 独立子技能条目(继承基础技能等级,基础技能归 0)
   const legacySubs = Object.keys(merged.specialties).filter((k) => subSkillBaseOf(k));
@@ -420,6 +434,8 @@ export interface SaveDef {
   skill: string;
   /** 完美加值 DP = 传奇属性 × 3 */
   perfect: number;
+  /** 覆盖默认"+[完美]传奇attr×3"的展示说明(RM 意志检定) */
+  perfectNote?: string;
 }
 
 export interface DerivedStats {
@@ -439,8 +455,9 @@ export interface DerivedStats {
   saves: { 意志: SaveDef; 反射: SaveDef; 强韧: SaveDef };
 }
 
-/** 衍生属性计算(含传奇属性收益,属性取三渠道合计)。 */
+/** 衍生属性计算(含传奇属性收益,属性取三渠道合计;公式按角色所属规则书版本)。 */
 export function deriveStats(c: CharacterData): DerivedStats {
+  const rm = c.rules === "rm";
   const totals = {} as Record<AttributeKey, number>;
   for (const k of ATTRIBUTE_KEYS) totals[k] = attrTotal(c, k);
   const legend = {} as Record<AttributeKey, number>;
@@ -451,21 +468,29 @@ export function deriveStats(c: CharacterData): DerivedStats {
     SIZES[c.size].hp +
     legendTriangle(legend["耐力"]);
 
-  const willpowerMax =
-    totals["决心"] + totals["沉着"] +
-    3 * legend["决心"] + 3 * legend["沉着"];
+  // 意志值 = 决心+沉着;3.25 每传奇+3,RM 每传奇+1
+  const legendWill = rm
+    ? legend["决心"] + legend["沉着"]
+    : 3 * legend["决心"] + 3 * legend["沉着"];
+  const willpowerMax = totals["决心"] + totals["沉着"] + legendWill;
 
-  // 意志力基础用法:传奇风度×2 + 3
-  const willpowerBaseUses = 3 + 2 * legend["风度"];
+  // 意志力基础用法:3.25 = 传奇风度×2+3;RM 无每轮限制
+  const willpowerBaseUses = rm ? 0 : 3 + 2 * legend["风度"];
 
-  const initiative = totals["敏捷"] + totals["沉着"] + 3 * legend["沉着"];
+  // 先攻 = 敏捷+沉着;3.25 +3×传奇沉着,RM +1×传奇沉着
+  const initiative =
+    totals["敏捷"] + totals["沉着"] + (rm ? legend["沉着"] : 3 * legend["沉着"]);
 
-  const baseDefense =
-    Math.min(totals["敏捷"], totals["感知"]) +
-    legend["敏捷"] + legend["感知"];
+  // 基础防御:3.25 含传奇敏捷/感知;RM 传奇只给防御附加成功与洞察防御
+  const baseDefense = rm
+    ? Math.min(totals["敏捷"], totals["感知"])
+    : Math.min(totals["敏捷"], totals["感知"]) +
+      legend["敏捷"] + legend["感知"];
 
-  // 速度 = 力量 + 敏捷 + 体积速度修正(中型体积5 => +5米)
-  const speed = totals["力量"] + totals["敏捷"] + SIZES[c.size].hp;
+  // 速度 = 力量+敏捷+体积;RM 传奇敏捷再 +3n
+  const speed =
+    totals["力量"] + totals["敏捷"] + SIZES[c.size].hp +
+    (rm ? 3 * legend["敏捷"] : 0);
 
   return {
     legend,
@@ -477,12 +502,24 @@ export function deriveStats(c: CharacterData): DerivedStats {
     baseDefense,
     speed,
     touchRange: 2,
-    // 敏感范围 = 感知×10 + 传奇感知×20 米
+    // 敏感范围 = 感知×10 + 传奇感知×20 米(两版一致)
     sensitiveRange: totals["感知"] * 10 + legend["感知"] * 20,
-    saves: {
-      意志: { formula: "决心+感受", attr: "决心", skill: "感受", perfect: 3 * legend["决心"] },
-      反射: { formula: "敏捷+运动", attr: "敏捷", skill: "运动", perfect: 3 * legend["敏捷"] },
-      强韧: { formula: "耐力+求生", attr: "耐力", skill: "求生", perfect: 3 * legend["耐力"] },
-    },
+    saves: rm
+      ? {
+          意志: {
+            formula: "决心+沉着(意志值)",
+            attr: "决心",
+            skill: "沉着",
+            perfect: legend["决心"] + legend["沉着"],
+            perfectNote: `传奇决心+传奇沉着 = ${legend["决心"] + legend["沉着"]}DP`,
+          },
+          反射: { formula: "敏捷+运动", attr: "敏捷", skill: "运动", perfect: 3 * legend["敏捷"] },
+          强韧: { formula: "耐力+求生", attr: "耐力", skill: "求生", perfect: 3 * legend["耐力"] },
+        }
+      : {
+          意志: { formula: "决心+感受", attr: "决心", skill: "感受", perfect: 3 * legend["决心"] },
+          反射: { formula: "敏捷+运动", attr: "敏捷", skill: "运动", perfect: 3 * legend["敏捷"] },
+          强韧: { formula: "耐力+求生", attr: "耐力", skill: "求生", perfect: 3 * legend["耐力"] },
+        },
   };
 }

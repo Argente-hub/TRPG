@@ -1,5 +1,6 @@
 /** 数据加载:规则书 md、建卡数据(专长/缺陷/怪癖/天赋)、资源库。带内存缓存。 */
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
+import { useRulebook } from "../store/rulebook";
 
 const cache = new Map<string, unknown>();
 const listeners = new Map<string, Set<() => void>>();
@@ -28,7 +29,7 @@ async function load<T>(key: string, url: string): Promise<T | null> {
   }
 }
 
-function useCached<T>(key: string, url: string): T | null {
+function useCached<T>(key: string, url: string | null): T | null {
   useSyncExternalStore(
     (cb) => {
       if (!listeners.has(key)) listeners.set(key, new Set());
@@ -40,7 +41,7 @@ function useCached<T>(key: string, url: string): T | null {
     () => cache.has(key),
     () => false,
   );
-  if (!cache.has(key)) {
+  if (!cache.has(key) && url) {
     void load<T>(key, url).then((d) => {
       if (d) notify(key);
     });
@@ -79,17 +80,17 @@ export interface TalentEntry {
 }
 export interface FeatsData { count: number; entries: FeatEntry[] }
 
-export function useFeats() {
-  return useCached<FeatsData>("feats", "./data/curated/feats.json");
+export function useFeats(version: string | undefined = "3.25") {
+  return useCached<FeatsData>(`feats-${version}`, `./data/curated/${version}/feats.json`);
 }
-export function useFlaws() {
-  return useCached<{ count: number; entries: FlawEntry[] }>("flaws", "./data/curated/flaws.json");
+export function useFlaws(version: string | undefined = "3.25") {
+  return useCached<{ count: number; entries: FlawEntry[] }>(`flaws-${version}`, `./data/curated/${version}/flaws.json`);
 }
-export function useQuirks() {
-  return useCached<{ count: number; entries: QuirkEntry[] }>("quirks", "./data/curated/quirks.json");
+export function useQuirks(version: string | undefined = "3.25") {
+  return useCached<{ count: number; entries: QuirkEntry[] }>(`quirks-${version}`, `./data/curated/${version}/quirks.json`);
 }
-export function useTalents() {
-  return useCached<{ count: number; entries: TalentEntry[] }>("talents", "./data/curated/talents.json");
+export function useTalents(version: string | undefined = "3.25") {
+  return useCached<{ count: number; entries: TalentEntry[] }>(`talents-${version}`, `./data/curated/${version}/talents.json`);
 }
 
 // ---------------- 资源库 ----------------
@@ -148,29 +149,32 @@ export interface ResourceChunk {
   entries: ResourceEntry[];
 }
 
-export function useResourceIndex() {
-  const idx = useCached<ResourceIndex>("res-index", "./data/resources/index.json");
-  if (idx) setIndexData(idx);
+export function useResourceIndex(version: string) {
+  const idx = useCached<ResourceIndex>(
+    `res-index-${version}`,
+    version ? `./data/resources/${version}/index.json` : null,
+  );
+  if (idx) setIndexData(version, idx);
   return idx;
 }
 
-let indexData: ResourceIndex | null = null;
-export function setIndexData(idx: ResourceIndex | null) {
-  indexData = idx;
+const indexData: Record<string, ResourceIndex> = {};
+export function setIndexData(version: string, idx: ResourceIndex) {
+  indexData[version] = idx;
 }
 
-export function categoryFile(category: string): string {
-  const meta = indexData?.chunks.find((c) => c.category === category);
-  return `./data/resources/${meta ? meta.file : `cat_UNKNOWN_${category}.json`}`;
+export function categoryFile(version: string, category: string): string {
+  const meta = indexData[version]?.chunks.find((c) => c.category === category);
+  return `./data/resources/${version}/${meta ? meta.file : `cat_UNKNOWN_${category}.json`}`;
 }
 
-export function loadResourceChunk(category: string): Promise<ResourceChunk | null> {
-  return load<ResourceChunk>(`res-cat-${category}`, categoryFile(category));
+export function loadResourceChunk(version: string, category: string): Promise<ResourceChunk | null> {
+  return load<ResourceChunk>(`res-cat-${version}-${category}`, categoryFile(version, category));
 }
 
 // ---------------- 规则书(多版本) ----------------
 
-export interface RuleFileMeta { file: string; title: string }
+export interface RuleFileMeta { file: string | null; title: string; depth?: number }
 export interface RuleVersionMeta { id: string; label: string; source?: string }
 
 export function useRuleVersions(): RuleVersionMeta[] {
@@ -178,8 +182,26 @@ export function useRuleVersions(): RuleVersionMeta[] {
   return idx?.versions ?? [];
 }
 
+/** 全站共享的"当前规则书":规则书阅读器与资料库跟随同一选择(见 store/rulebook.ts)。 */
+export function useRulebookVersion(): [string, (id: string) => void] {
+  const versions = useRuleVersions();
+  const versionId = useRulebook((s) => s.versionId);
+  const setVersion = useRulebook((s) => s.setVersion);
+  // 默认取第一个版本;持久化的版本不存在时回退
+  useEffect(() => {
+    if (versions.length === 0) return;
+    if (!versions.some((v) => v.id === versionId)) {
+      setVersion(versions[0].id);
+    }
+  }, [versions, versionId, setVersion]);
+  return [versionId, setVersion];
+}
+
 export function useRuleList(version: string): RuleFileMeta[] | null {
-  const idx = useCached<{ files: RuleFileMeta[] }>(`rules-list-${version}`, `./data/rules/${version}/index.json`);
+  const idx = useCached<{ files: RuleFileMeta[] }>(
+    `rules-list-${version}`,
+    version ? `./data/rules/${version}/index.json` : null,
+  );
   return idx?.files ?? null;
 }
 

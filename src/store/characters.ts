@@ -7,12 +7,13 @@ import {
   normalizeCharacter,
   LedgerEntry,
   CurrencyUnit,
+  RulesVersion,
 } from "../engine/character";
 
 interface CharactersState {
   characters: CharacterData[];
   activeId: string | null;
-  create: (name: string) => CharacterData;
+  create: (name: string, rules?: RulesVersion) => CharacterData;
   update: (id: string, patch: Partial<CharacterData> | ((c: CharacterData) => void)) => void;
   remove: (id: string) => void;
   setActive: (id: string | null) => void;
@@ -25,10 +26,11 @@ export const useCharacters = create<CharactersState>()(
     (set) => ({
       characters: [],
       activeId: null,
-      create: (name) => {
+      create: (name, rules) => {
         const c = emptyCharacter(
           `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
           name || "无名者",
+          rules ?? "3.25",
         );
         set((s) => ({ characters: [...s.characters, c], activeId: c.id }));
         return c;

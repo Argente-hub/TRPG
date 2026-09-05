@@ -2,23 +2,15 @@ import { useEffect, useState } from "react";
 import {
   useRuleList,
   useRuleVersions,
+  useRulebookVersion,
   loadRuleText,
   getCachedText,
   RuleFileMeta,
 } from "../lib/data";
 
-const VERSION_KEY = "wuxian-rules-version";
-
 export default function Rules() {
   const versions = useRuleVersions();
-  const [versionId, setVersionId] = useState<string>(() => localStorage.getItem(VERSION_KEY) ?? "");
-  // 默认取第一个版本;持久化的版本若不存在也回退
-  useEffect(() => {
-    if (versions.length === 0) return;
-    if (!versions.some((v) => v.id === versionId)) {
-      setVersionId(versions[0].id);
-    }
-  }, [versions, versionId]);
+  const [versionId, selectVersion] = useRulebookVersion();
 
   const files = useRuleList(versionId);
   const [current, setCurrent] = useState<RuleFileMeta | null>(null);
@@ -32,7 +24,7 @@ export default function Rules() {
   }, [versionId]);
 
   useEffect(() => {
-    if (!current || !versionId) return;
+    if (!current || !current.file || !versionId) return;
     const cached = getCachedText(`rule-${versionId}-${current.file}`);
     if (cached) {
       setText(cached);
@@ -42,23 +34,23 @@ export default function Rules() {
     void loadRuleText(versionId, current.file).then((t) => setText(t ?? "加载失败"));
   }, [current, versionId]);
 
-  const selectVersion = (id: string) => {
-    setVersionId(id);
-    localStorage.setItem(VERSION_KEY, id);
-  };
-
   const currentLabel = versions.find((v) => v.id === versionId)?.label ?? versionId;
-  const filtered = (files ?? []).filter((f) => !search || f.title.includes(search));
+  const searching = !!search.trim();
+  // 搜索时过滤条目;分组标题(无正文章节)仅在非搜索时显示
+  const visible = (files ?? []).filter((f) => {
+    if (!searching && f.file === null) return true;
+    return !search || f.title.includes(search.trim());
+  });
 
   return (
-    <div className="max-w-6xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-4">
+    <div className="max-w-6xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4">
       <div className="border border-zinc-800 rounded-lg bg-zinc-900/40 overflow-hidden h-fit lg:sticky lg:top-4">
         <div className="p-2 border-b border-zinc-800 space-y-1.5">
           <select
             value={versionId}
             onChange={(e) => selectVersion(e.target.value)}
             className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-xs font-bold"
-            title="切换规则书版本"
+            title="切换规则书版本(资料库同步切换)"
           >
             {versions.map((v) => (
               <option key={v.id} value={v.id}>📘 {v.label}</option>
@@ -74,17 +66,31 @@ export default function Rules() {
         </div>
         <div className="max-h-[36rem] overflow-y-auto">
           {(files ?? []).length === 0 && <div className="p-3 text-xs text-zinc-600">加载中…</div>}
-          {filtered.map((f) => (
-            <button
-              key={f.file}
-              onClick={() => setCurrent(f)}
-              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-zinc-800/70 ${
-                current?.file === f.file ? "bg-indigo-900/50 text-indigo-200" : "text-zinc-400"
-              }`}
-            >
-              {f.title}
-            </button>
-          ))}
+          {visible.map((f, i) =>
+            f.file === null ? (
+              <div
+                key={`g${i}`}
+                style={{ paddingLeft: 12 + (f.depth ?? 0) * 12 }}
+                className="px-1 py-1.5 text-[11px] font-bold text-zinc-500 uppercase tracking-wide"
+              >
+                {f.title}
+              </div>
+            ) : (
+              <button
+                key={f.file}
+                onClick={() => setCurrent(f)}
+                style={{ paddingLeft: 12 + (f.depth ?? 0) * 12 }}
+                className={`w-full text-left pr-3 py-1.5 text-xs hover:bg-zinc-800/70 ${
+                  current?.file === f.file ? "bg-indigo-900/50 text-indigo-200" : "text-zinc-400"
+                }`}
+              >
+                {f.title}
+              </button>
+            ),
+          )}
+          {visible.length === 0 && (files ?? []).length > 0 && (
+            <div className="p-3 text-xs text-zinc-600">无匹配章节</div>
+          )}
         </div>
       </div>
 

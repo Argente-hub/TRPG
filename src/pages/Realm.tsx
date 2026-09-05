@@ -11,6 +11,7 @@ import {
   MISSION_RANKS,
   MissionRank,
 } from "../engine/economy";
+import { rulesOf } from "../engine/rules";
 import { CurrencyUnit } from "../engine/character";
 
 export default function Realm() {
@@ -81,7 +82,7 @@ export default function Realm() {
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-4">
       <div>
-        <h1 className="text-xl font-bold">轮回之境 · {ch.name}</h1>
+        <h1 className="text-xl font-bold">{rulesOf(ch.rules).terms.realm} · {ch.name}</h1>
         <p className="text-xs text-zinc-500 mt-1">支线奖励、分数与经验的账本。交易、兑换与复活等操作请记录在此。</p>
       </div>
 

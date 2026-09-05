@@ -7,6 +7,8 @@ import Combat from "./pages/Combat";
 import Realm from "./pages/Realm";
 import Codex from "./pages/Codex";
 import Rules from "./pages/Rules";
+import { useRulebookVersion, useRuleVersions } from "./lib/data";
+import { rulesOf } from "./engine/rules";
 
 const NAV = [
   { to: "/", label: "首页", icon: "🏠" },
@@ -20,12 +22,17 @@ const NAV = [
 ];
 
 export default function App() {
+  const versions = useRuleVersions();
+  const [versionId] = useRulebookVersion();
+  const versionLabel = versions.find((v) => v.id === versionId)?.label;
+  const realm = rulesOf(versionId).terms.realm;
+
   return (
     <div className="flex h-full">
       <aside className="w-44 shrink-0 border-r border-zinc-800 bg-zinc-900/60 flex flex-col">
         <div className="px-4 py-5 border-b border-zinc-800">
           <div className="text-lg font-bold tracking-wide">无限流 TRPG</div>
-          <div className="text-xs text-zinc-500 mt-0.5">正式版 3.25 · 跑团工具站</div>
+          <div className="text-xs text-zinc-500 mt-0.5">跑团工具站</div>
         </div>
         <nav className="flex-1 p-2 space-y-0.5">
           {NAV.map((n) => (
@@ -41,12 +48,14 @@ export default function App() {
               }
             >
               <span className="text-base">{n.icon}</span>
-              {n.label}
+              {n.to === "/realm" ? realm : n.label}
             </NavLink>
           ))}
         </nav>
         <div className="p-3 text-[11px] text-zinc-600 leading-relaxed">
-          数据来源:无限流TRPG正式版3.25.chm
+          当前规则书:{versionLabel ?? "…"}
+          <br />
+          建卡/战斗引擎按 3.25 版实现
           <br />
           规则疑问以 ST 裁定为准
         </div>

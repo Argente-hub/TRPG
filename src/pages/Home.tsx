@@ -2,15 +2,20 @@ import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCharacters } from "../store/characters";
 import { deriveStats } from "../engine/character";
+import { useRulebookVersion } from "../lib/data";
+import { rulesOf } from "../engine/rules";
 
 export default function Home() {
   const nav = useNavigate();
   const { characters, create, remove, setActive, importJson } = useCharacters();
+  const [versionId] = useRulebookVersion();
+  const realm = rulesOf(versionId).terms.realm;
   const [name, setName] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleCreate = () => {
-    const c = create(name.trim() || "新角色");
+    // 新角色按当前规则书版本建卡
+    const c = create(name.trim() || "新角色", versionId === "rm" ? "rm" : "3.25");
     setName("");
     nav(`/builder?id=${c.id}`);
   };
@@ -33,7 +38,7 @@ export default function Home() {
   return (
     <div className="max-w-4xl mx-auto p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold">轮回之境 · 角色管理</h1>
+        <h1 className="text-2xl font-bold">{realm} · 角色管理</h1>
         <p className="text-zinc-500 text-sm mt-1">
           创建角色卡、开始建卡向导,或在跑团时管理你的角色。数据保存在浏览器本地,可导出 JSON 备份。
         </p>
@@ -94,7 +99,12 @@ export default function Home() {
               >
                 <div className="flex items-start justify-between">
                   <div>
-                    <div className="font-bold text-lg">{c.name}</div>
+                    <div className="font-bold text-lg">
+                      {c.name}
+                      <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded align-middle ${c.rules === "rm" ? "bg-fuchsia-900/60 text-fuchsia-200" : "bg-zinc-800 text-zinc-400"}`}>
+                        {c.rules === "rm" ? "RM版" : "3.25"}
+                      </span>
+                    </div>
                     <div className="text-xs text-zinc-500">{c.concept || "暂无概念"}</div>
                   </div>
                   <button
