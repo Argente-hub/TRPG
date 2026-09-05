@@ -6,6 +6,7 @@ import {
   ATTRIBUTES,
   ATTRIBUTE_KEYS,
   ATTR_CREATE_CAP,
+  ATTR_BASE,
   ATTR_CATEGORIES,
   AttrCategory,
   AttributeKey,
@@ -110,16 +111,18 @@ function Stepper({ value, min, max, onChange, name }: { value: number; min: numb
   return (
     <div className="flex items-center gap-1">
       <button
-        className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 text-sm"
+        className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 text-sm disabled:opacity-30 disabled:cursor-not-allowed"
         aria-label={name ? `${name} 减一` : undefined}
+        disabled={value <= min}
         onClick={() => onChange(Math.max(min, value - 1))}
       >
         −
       </button>
       <span className="w-8 text-center font-bold">{value}</span>
       <button
-        className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 text-sm"
+        className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 text-sm disabled:opacity-30 disabled:cursor-not-allowed"
         aria-label={name ? `${name} 加一` : undefined}
+        disabled={value >= max}
         onClick={() => onChange(Math.min(max, value + 1))}
       >
         +
@@ -251,7 +254,7 @@ function StepAttributes({ ch, patch, next, prev }: { ch: CharacterData; patch: (
                 <span className="text-sm">{k}</span>
                 <Stepper
                   value={ch.attributes[k as AttributeKey]}
-                  min={1}
+                  min={ATTR_BASE}
                   max={ATTR_CREATE_CAP}
                   name={k}
                   onChange={(v) => patch((c) => { c.attributes[k as AttributeKey] = v; })}

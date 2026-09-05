@@ -109,7 +109,7 @@ export default function CharacterSheet() {
                   return (
                     <div key={k} className="flex items-center gap-1.5 bg-zinc-900/70 border border-zinc-800 rounded px-2 py-1.5 text-sm">
                       <span className="w-9">{k}</span>
-                      <NumBox value={ch.attributes[key]} onChange={(v) => patch((c) => { c.attributes[key] = v; })} w="w-11" title="基础(2+建卡+购买)" />
+                      <NumBox value={ch.attributes[key]} onChange={(v) => patch((c) => { c.attributes[key] = Math.max(2, v); })} w="w-11" title="基础(2+建卡+购买,最低2)" />
                       <span className="text-zinc-600">+</span>
                       <NumBox value={comp.intrinsic} onChange={(v) => patch((c) => {
                         c.attrComponents[key] = { intrinsic: v, cultivation: c.attrComponents[key]?.cultivation ?? 0 };
