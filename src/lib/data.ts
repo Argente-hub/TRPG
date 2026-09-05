@@ -56,6 +56,8 @@ export interface FeatEntry {
   battle: boolean;
   exotic: boolean;
   maxLevel: number;
+  /** 起始等级(多数为 1;仅 X 级的专长如超凡身份(5) 则为 5) */
+  startLevel: number;
   text: string;
 }
 export interface FlawEntry {

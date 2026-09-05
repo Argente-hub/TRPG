@@ -18,7 +18,6 @@ import {
   attrRaiseCost,
   deriveStats,
   skillRaiseCost,
-  featLevelCost,
   flawPointsToTalentPoints,
   QUIRK_MAX,
   QUIRK_XP_EACH,
@@ -41,11 +40,26 @@ function skillTotalCost(v: number): number {
   return c;
 }
 
+
+/** 持有某等级的总花费(建卡规则):
+ *  特殊身份 → 1+2+…+level(可跳级,跳级补齐低级价格);
+ *  起始等级>1 → 按实际等级花费;
+ *  常规专长 → 1+2+…+level;起始0级 → 0。 */
+function featTotalCost(level: number, entry?: { name?: string; startLevel?: number; exotic?: boolean }): number {
+  if (!entry) return level;
+  let total: number;
+  if (entry.name === "特殊身份") total = (level * (level + 1)) / 2;
+  else if ((entry.startLevel ?? 1) > 1) total = level;
+  else total = (level * (level + 1)) / 2;
+  if (level === 0) total = 0;
+  return entry.exotic ? total * 2 : total;
+}
+
 export default function Builder() {
   const [params] = useSearchParams();
   const nav = useNavigate();
-  const { characters, update } = useCharacters();
-  const id = params.get("id") ?? "";
+  const { characters, update, activeId } = useCharacters();
+  const id = params.get("id") ?? activeId ?? "";
   const ch = characters.find((c) => c.id === id);
   const [step, setStep] = useState(0);
 
@@ -450,8 +464,7 @@ function StepFeats({ ch, patch, next, prev }: { ch: CharacterData; patch: (fn: (
   const hasSpecialIdentity = ch.feats.some((f) => f.name === "特殊身份");
   const spent = ch.feats.reduce((sum, f) => {
     const def = featsData?.entries.find((e) => e.name === f.name);
-    const exotic = def?.exotic ?? false;
-    return sum + featLevelCost(f.level, exotic);
+    return sum + featTotalCost(f.level, def);
   }, 0);
   const left = 15 - spent;
 
@@ -464,12 +477,14 @@ function StepFeats({ ch, patch, next, prev }: { ch: CharacterData; patch: (fn: (
     });
   }, [featsData, cat, search]);
 
-  const addFeat = (e: FeatEntry) => {
+  const addFeat = (e: FeatEntry, targetLevel?: number) => {
     patch((c) => {
       const cur = c.feats.find((f) => f.name === e.name);
-      const nextLv = (cur?.level ?? 0) + 1;
-      if (nextLv > e.maxLevel) return;
-      const cost = featLevelCost(nextLv, e.exotic) - (cur ? featLevelCost(cur.level, e.exotic) : 0);
+      const owned = cur?.level ?? 0;
+      // 特殊身份:可购买任意未持有等级;起始>1:可从起始级直接买;常规:逐级
+      const nextLv = targetLevel ?? (owned >= e.startLevel ? owned + 1 : e.startLevel);
+      if (nextLv > e.maxLevel || nextLv <= owned) return;
+      const cost = featTotalCost(nextLv, e) - featTotalCost(owned, e);
       if (cost > left) return;
       if (cur) cur.level = nextLv;
       else c.feats.push({ name: e.name, category: e.category as CharacterData["feats"][0]["category"], level: nextLv });
@@ -523,24 +538,54 @@ function StepFeats({ ch, patch, next, prev }: { ch: CharacterData; patch: (fn: (
         {filtered.map((e) => {
           const owned = ch.feats.find((f) => f.name === e.name);
           const battleLocked = e.battle && !hasSpecialIdentity;
-          const nextCost = featLevelCost((owned?.level ?? 0) + 1, e.exotic) - (owned ? featLevelCost(owned.level, e.exotic) : 0);
+          const nextCost = featTotalCost((owned?.level ?? 0) + 1, e) - featTotalCost(owned?.level ?? 0, e);
           const maxed = (owned?.level ?? 0) >= e.maxLevel;
+          const isSpecial = e.name === "特殊身份";
+          const nextLv = isSpecial || (e.startLevel ?? 1) > 1
+            ? Math.max(owned?.level ?? 0, 0) + 1 <= e.startLevel
+              ? e.startLevel
+              : (owned?.level ?? 0) + 1
+            : (owned?.level ?? 0) + 1;
+          void nextLv;
           return (
             <div key={e.name} className="flex items-center justify-between bg-zinc-900/70 border border-zinc-800 rounded px-3 py-2 gap-2">
               <div className="min-w-0">
                 <div className={`text-sm truncate ${owned ? "text-indigo-300" : ""}`} title={e.text.slice(0, 150)}>
-                  {e.name} <span className="text-zinc-600">≤{e.maxLevel}级</span>
+                  {e.name} <span className="text-zinc-600">{(e.startLevel ?? 1) > 1 ? `${e.startLevel}~${e.maxLevel}级` : `≤${e.maxLevel}级`}</span>
                   {e.exotic && <span className="text-amber-600 text-xs ml-1">建卡不可购</span>}
                   {battleLocked && <span className="text-red-500 text-xs ml-1">需特殊身份</span>}
                 </div>
               </div>
-              <button
-                disabled={maxed || battleLocked || e.exotic || nextCost > left}
-                onClick={() => addFeat(e)}
-                className="shrink-0 text-xs px-2 py-1 rounded bg-zinc-800 hover:bg-indigo-600 disabled:opacity-30"
-              >
-                {maxed ? "已满" : owned ? `升${owned.level + 1}(费${nextCost})` : `买1级(费1)`}
-              </button>
+              <div className="shrink-0 flex gap-1">
+                {maxed ? (
+                  <span className="text-xs text-zinc-500 px-2 py-1">已满</span>
+                ) : isSpecial || (e.startLevel ?? 1) > 1 ? (
+                  // 特殊身份/起始>1:列出可购等级(每级显示增量花费)
+                  Array.from({ length: e.maxLevel - (owned?.level ?? 0) }, (_, k) => (owned?.level ?? 0) + 1 + k)
+                    .filter((lv) => lv >= e.startLevel)
+                    .map((lv) => {
+                      const cost = featTotalCost(lv, e) - featTotalCost(owned?.level ?? 0, e);
+                      return (
+                        <button
+                          key={lv}
+                          disabled={battleLocked || e.exotic || cost > left}
+                          onClick={() => addFeat(e, lv)}
+                          className="text-xs px-2 py-1 rounded bg-zinc-800 hover:bg-indigo-600 disabled:opacity-30"
+                        >
+                          {lv}级(费{cost})
+                        </button>
+                      );
+                    })
+                ) : (
+                  <button
+                    disabled={battleLocked || e.exotic || nextCost > left}
+                    onClick={() => addFeat(e)}
+                    className="text-xs px-2 py-1 rounded bg-zinc-800 hover:bg-indigo-600 disabled:opacity-30"
+                  >
+                    {owned ? `升${owned.level + 1}(费${nextCost})` : `买1级(费1)`}
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}

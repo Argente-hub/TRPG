@@ -33,8 +33,12 @@ export function isUnconscious(w: WoundState, maxHp: number): boolean {
 }
 
 /**
- * 造成伤害:先扣完好,余量记入对应级别;溢出时向下转化 2B→1L、2L→1A,
- * 循环直至 B+L+A = 上限;无法转化的溢出部分不计数值,仅标记。
+ * 造成伤害(《受伤》规则+原书范例):
+ * - 伤势直接记入对应级别(完好 = 上限 − B−L−A);
+ * - 记录后若 B+L+A > 上限,按 2B→1L、2L→1A 向下转化,直至总和 = 上限;
+ * - 转化成对进行(每对减少总量 1);某级剩 1 点且仍需转化时,该 1 点也升一级
+ *   (范例:13B→7L;21L→转化12L→6A,留 9L);
+ * - 全部为恶性且总和 ≥ 上限 → 死亡;无法转化的溢出仅标记。
  * 返回新状态(不可变)。
  */
 export function applyDamage(
@@ -44,31 +48,38 @@ export function applyDamage(
   type: WoundType,
 ): WoundState {
   const n = { ...w };
-  let amt = Math.max(0, Math.floor(amount));
-  const intact = intactCount(n, maxHp);
-  if (amt <= intact) {
-    // 全部由完好吸收,不记录伤势
-    return n;
-  }
-  amt -= intact;
+  const amt = Math.max(0, Math.floor(amount));
   if (type === "B") n.b += amt;
   else if (type === "L") n.l += amt;
   else n.a += amt;
 
-  // 溢出转化
-  while (n.b + n.l + n.a > maxHp) {
-    if (n.b >= 2) {
-      n.b -= 2;
-      n.l += 1;
-    } else if (n.l >= 2) {
-      n.l -= 2;
-      n.a += 1;
+  const sum = () => n.b + n.l + n.a;
+  let guard = 0;
+  while (sum() > maxHp && guard < 1000) {
+    guard++;
+    const excess = sum() - maxHp;
+    if (n.b > 0) {
+      // 2B→1L 成对转化;若对数不足以消化溢出,余下的 1B 也升为 1L(范例 13B→7L)
+      const pairs = Math.min(Math.floor(n.b / 2), excess);
+      n.b -= pairs * 2;
+      n.l += pairs;
+      if (n.b === 1 && sum() > maxHp) {
+        n.b = 0;
+        n.l += 1;
+      }
+    } else if (n.l > 0) {
+      // 2L→1A 成对转化,只转化到总和 = 上限为止(范例:转化12L→6A,留 9L)
+      const pairs = Math.min(Math.floor(n.l / 2), excess);
+      n.l -= pairs * 2;
+      n.a += pairs;
+      if (n.l === 1 && sum() > maxHp) {
+        n.l = 0;
+        n.a += 1;
+      }
     } else {
-      // 无法转化:溢出部分丢弃(不计数值)
-      const excess = n.b + n.l + n.a - maxHp;
-      if (n.b > 0) n.b = Math.max(0, n.b - excess);
-      else if (n.l > 0) n.l = Math.max(0, n.l - excess);
+      // 全为恶性:无法继续转化,溢出仅标记(此时 a ≥ 上限,死亡)
       n.overflow += excess;
+      break;
     }
   }
   return n;

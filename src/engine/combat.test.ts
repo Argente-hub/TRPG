@@ -10,28 +10,28 @@ import {
   applyReductionChain,
 } from "./combat";
 
-describe("伤势填充与溢出", () => {
-  it("伤害先扣完好", () => {
-    const w = applyDamage(emptyWounds(), 10, 3, "B");
-    expect(w.b).toBe(0);
-    expect(intactCount(w, 10)).toBe(7);
+describe("伤势填充与溢出(按原书范例)", () => {
+  it("20HP 受 3B → 17完好+3B(伤势立即记录)", () => {
+    const w = applyDamage(emptyWounds(), 20, 3, "B");
+    expect(w.b).toBe(3);
+    expect(intactCount(w, 20)).toBe(17);
   });
 
-  it("完好耗尽后记入对应级别", () => {
-    let w = applyDamage(emptyWounds(), 10, 8, "B"); // 8 完好吸收? 不:10-8=2 完好,记2B
-    expect(w.b).toBe(2);
-    w = applyDamage(w, 10, 5, "L"); // 完好2吸收,记3L
-    expect(w.l).toBe(3);
-    expect(intactCount(w, 10)).toBe(0);
+  it("范例前半:3B 后 4L 后 5A → 8完好+3B+4L+5A", () => {
+    let w = applyDamage(emptyWounds(), 20, 3, "B");
+    w = applyDamage(w, 20, 4, "L");
+    w = applyDamage(w, 20, 5, "A");
+    expect(w).toMatchObject({ b: 3, l: 4, a: 5 });
+    expect(intactCount(w, 20)).toBe(8);
   });
 
-  it("溢出转化:2B→1L、2L→1A,循环至上限", () => {
-    // maxHp=5:一次 12 点 B => 5完好吸收,记7B;7B>5 => 2B→1L ×3 = 1B,3L? 不对:
-    // 7B: 2B→1L(5B,1L), 2B→1L(3B,2L), 2B→1L(1B,3L) => sum=4 ≤5 结束
-    const w = applyDamage(emptyWounds(), 5, 12, "B");
-    expect(w.b).toBe(1);
-    expect(w.l).toBe(3);
-    expect(w.a).toBe(0);
+  it("范例后半:13B+14L+5A 转化 → 9L+11A(死亡线)", () => {
+    let w = { b: 3, l: 4, a: 5, overflow: 0 };
+    w = applyDamage(w, 20, 10, "B"); // 13B
+    w = applyDamage(w, 20, 10, "L"); // 14L,总 32 > 20 → 转化
+    // 13B→7L(成对6+余1),得 21L+5A=26;再 12L→6A → 9L+11A=20
+    expect(w).toMatchObject({ b: 0, l: 9, a: 11 });
+    expect(w.b + w.l + w.a).toBe(20);
   });
 
   it("全部转为恶性即死亡", () => {
@@ -39,15 +39,15 @@ describe("伤势填充与溢出", () => {
     expect(isDead(w, 3)).toBe(true);
   });
 
-  it("无完好即昏迷", () => {
-    const w = applyDamage(emptyWounds(), 4, 4, "B");
-    expect(isUnconscious(w, 4)).toBe(false); // 完好=0,伤势4B → 2B→1L×2 = 2L
-    // 重新算:maxHp4, 4B伤害全部由完好吸收 → intact=0 → 昏迷
+  it("无完好即昏迷:总和等于上限时无需转化(8HP 受 8B → 8B)", () => {
+    const w = applyDamage(emptyWounds(), 8, 8, "B");
+    expect(w).toMatchObject({ b: 8, l: 0, a: 0 });
+    expect(intactCount(w, 8)).toBe(0);
+    expect(isUnconscious(w, 8)).toBe(true);
   });
 
   it("短休:B→完好;长休:L→完好 或 A→L", () => {
-    let w = emptyWounds();
-    w = { b: 2, l: 2, a: 1, overflow: 0 };
+    let w = { b: 2, l: 2, a: 1, overflow: 0 };
     w = healWounds(w, "B");
     expect(w.b).toBe(0);
     w = healWounds(w, "L");
@@ -91,12 +91,12 @@ describe("攻击结算", () => {
 
   it("未命中:自然成功 ≤ 防御附加成功", () => {
     const out = resolveAttack({
-      dp: 10,
+      dp: 5, // 减去防御5后掷0骰
       attackBonus: 5,
       damageCap: 10,
       targetDefense: { ...def, bonusSuccesses: 2 },
       damageType: "L",
-      rng: () => 0.7, // 8:1成功 ≤ 2
+      rng: () => 0.7,
     });
     expect(out.hit).toBe(false);
     expect(out.rawDamage).toBe(0);

@@ -29,8 +29,8 @@ function categoryOf(r: { category: string }): string {
 export default function CharacterSheet() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { characters, update } = useCharacters();
-  const ch = characters.find((c) => c.id === id);
+  const { characters, update, activeId } = useCharacters();
+  const ch = characters.find((c) => c.id === id) ?? characters.find((c) => c.id === activeId);
 
   if (!ch) {
     return (
