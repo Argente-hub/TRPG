@@ -6,6 +6,8 @@ import {
   ResourceIndexEntry,
 } from "../lib/data";
 import { useCharacters } from "../store/characters";
+import { useCustomResources, CustomResource } from "../store/customResources";
+import { parseImportedText, ParsedEntry, IMPORT_RANKS } from "../lib/parseImport";
 import { MissionRank, MISSION_RANKS } from "../engine/economy";
 import { CurrencyUnit } from "../engine/character";
 
@@ -33,6 +35,9 @@ const RANKS = ["S", "A", "B", "C", "D", "无支线"];
 
 export default function Codex() {
   const index = useResourceIndex();
+  const customStore = useCustomResources();
+  const customEntries = customStore.entries;
+  const [showImport, setShowImport] = useState(false);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string>("全部");
   const [rank, setRank] = useState<string>("全部");
@@ -41,26 +46,43 @@ export default function Codex() {
   const { characters, activeId, update } = useCharacters();
   const activeCh = characters.find((c) => c.id === activeId);
 
-  const categories = useMemo(() => {
-    if (!index) return [];
-    const set = new Set<string>();
-    for (const e of index.entries) set.add(e.path[0] ?? "其他");
-    return ["全部", ...Array.from(set)];
-  }, [index]);
+  const allEntries = useMemo(() => {
+    const custom: ResourceIndexEntry[] = customEntries.map((c) => ({
+      id: c.id,
+      name: c.name,
+      path: [c.category, "自定义"],
+      rank: c.rank,
+      price: c.price,
+      nature: c.nature,
+      isSubSkill: false,
+      isCustom: true,
+    }));
+    return [...custom, ...(index?.entries ?? [])];
+  }, [index, customEntries]);
 
   const filtered = useMemo(() => {
-    if (!index) return [];
     const q = search.trim();
-    return index.entries.filter((e) => {
+    return allEntries.filter((e) => {
       if (!showSubs && e.isSubSkill) return false;
       if (category !== "全部" && (e.path[0] ?? "其他") !== category) return false;
       if (rank !== "全部" && e.rank !== rank) return false;
       if (q && !e.name.includes(q) && !(e.price ?? "").includes(q) && !e.path.join("/").includes(q)) return false;
       return true;
     });
-  }, [index, search, category, rank]);
+  }, [allEntries, search, category, rank]);
+
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of allEntries) set.add(e.path[0] ?? "其他");
+    return ["全部", ...Array.from(set)];
+  }, [allEntries]);
 
   const openDetail = async (e: ResourceIndexEntry) => {
+    if (e.isCustom) {
+      const found = customEntries.find((x) => x.id === e.id);
+      if (found) setDetail({ ...found, toc: found.name, file: "(自定义导入)", path: [found.category, "自定义"] });
+      return;
+    }
     const chunk = await loadResourceChunk(e.path[0] ?? "其他");
     const found = chunk?.entries.find((x) => x.id === e.id);
     if (found) setDetail(found);
@@ -173,7 +195,9 @@ export default function Codex() {
       <div className="mb-4">
         <h1 className="text-xl font-bold">资料库</h1>
         <p className="text-xs text-zinc-500 mt-1">
-          {index ? `共 ${index.count} 条资源(血统/改造/瞳术/称号/流派/典籍/技艺/物品/法术/修炼体系/随从)` : "加载中…"}
+          {index
+            ? `内置 ${index.count} 条 + 自定义 ${customEntries.length} 条资源(血统/改造/瞳术/称号/流派/典籍/技艺/物品/法术/修炼体系/随从)`
+            : "加载中…"}
         </p>
       </div>
 
@@ -195,7 +219,19 @@ export default function Codex() {
           <input type="checkbox" checked={showSubs} onChange={(e) => setShowSubs(e.target.checked)} />
           显示技能/部件子条目
         </label>
+        <button
+          onClick={() => setShowImport(!showImport)}
+          className="ml-auto px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-sm font-bold"
+        >
+          ＋ 导入资源
+        </button>
       </div>
+
+      {showImport && (
+        <ImportPanel
+          onDone={() => setShowImport(false)}
+        />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4">
         <div className="border border-zinc-800 rounded-lg bg-zinc-900/40 overflow-hidden">
@@ -212,6 +248,9 @@ export default function Codex() {
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium truncate">{e.name}</span>
                   {e.isSubSkill && <span className="text-[10px] px-1 rounded bg-emerald-900/70 text-emerald-300">树</span>}
+                  {(e as ResourceIndexEntry & { isCustom?: boolean }).isCustom && (
+                    <span className="text-[10px] px-1 rounded bg-sky-900/70 text-sky-300">自定义</span>
+                  )}
                   {e.rank && <span className="text-[10px] px-1 rounded bg-indigo-900/70 text-indigo-300">{e.rank}级</span>}
                   {e.nature && <span className="text-[10px] text-zinc-500">{e.nature}</span>}
                 </div>
@@ -359,6 +398,18 @@ export default function Codex() {
                   </div>
                 </div>
               )}
+              {detail.file === "(自定义导入)" && (
+                <button
+                  onClick={() => {
+                    if (!confirm(`删除自定义资源「${detail.name}」?`)) return;
+                    customStore.remove(detail.id);
+                    setDetail(null);
+                  }}
+                  className="mt-4 w-full py-2 rounded bg-red-800 hover:bg-red-700 text-sm font-bold"
+                >
+                  删除该自定义资源
+                </button>
+              )}
               {!detail.isSubSkill && activeCh && !detail.subSkills && (
                 <button
                   onClick={() => {
@@ -409,6 +460,153 @@ function EntryText({ text }: { text: string }) {
         if (!line.trim()) return <div key={i} className="h-1" />;
         return <p key={i}>{line}</p>;
       })}
+    </div>
+  );
+}
+
+// ---------------- 导入资源面板 ----------------
+
+function ImportPanel({ onDone }: { onDone: () => void }) {
+  const [raw, setRaw] = useState("");
+  const [category, setCategory] = useState("物品");
+  const [preview, setPreview] = useState<ParsedEntry[] | null>(null);
+  const [ranks, setRanks] = useState<Record<number, string>>({});
+  const [excluded, setExcluded] = useState<Record<number, boolean>>({});
+  const addMany = useCustomResources((s) => s.addMany);
+  const { setActive } = useCharacters();
+  void setActive;
+
+  const doParse = () => {
+    const list = parseImportedText(raw, category);
+    setPreview(list);
+    const r: Record<number, string> = {};
+    list.forEach((e, i) => { if (e.rank) r[i] = e.rank; });
+    setRanks(r);
+    setExcluded({});
+  };
+
+  const confirm = () => {
+    if (!preview) return;
+    const list: CustomResource[] = [];
+    preview.forEach((e, i) => {
+      if (excluded[i]) return;
+      const rank = ranks[i] ?? e.rank ?? null;
+      list.push({
+        id: `u_${Date.now().toString(36)}_${i}`,
+        name: e.name,
+        category,
+        rank,
+        price: e.price,
+        nature: e.nature,
+        text: e.text,
+        ranks: e.ranks,
+        subSkills: e.subSkills,
+        createdAt: Date.now(),
+      });
+    });
+    if (list.length === 0) { alert("没有勾选任何条目"); return; }
+    addMany(list);
+    alert(`已导入 ${list.length} 条自定义资源(可在列表中以"自定义"徽标识别)`);
+    onDone();
+  };
+
+  const onFile = async (f: File) => {
+    const text = await f.text();
+    setRaw(text);
+    setPreview(null);
+  };
+
+  return (
+    <div className="border border-emerald-800/50 rounded-lg p-4 bg-emerald-950/10 mb-4 space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h3 className="font-bold text-sm">导入外部资源(自动分级)</h3>
+        <label className="text-xs px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 cursor-pointer">
+          从文件导入(.txt/.md)
+          <input type="file" accept=".txt,.md,.json" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
+        </label>
+      </div>
+      <p className="text-xs text-zinc-500">
+        粘贴资源文本(支持多条,用 ===== 分隔线或空行分隔)。自动识别:名称、
+        <b className="text-amber-300">等级</b>(价格"D+500"/"等级:D级"/名称带级别/阶梯结构,无价格时按分类标准价表回退)、价格、本质、
+        等级阶梯(D级:/C级: 段)与可单独购买的子技能。导入后可随时删除。
+      </p>
+      <textarea
+        value={raw}
+        onChange={(e) => setRaw(e.target.value)}
+        rows={6}
+        placeholder={`示例:
+血统·示例
+本质:魔幻本质
+价格:D+600
+技能树:开启示例D级技能树
+特性:…
+
+====
+
+D级:入门
+价格:D+600
+属性:…
+
+====
+
+示例技艺
+价格:D+500
+动作:标准动作
+效果:…`}
+        className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm font-mono"
+      />
+      <div className="flex gap-2 items-center flex-wrap">
+        <label className="text-xs text-zinc-400 flex items-center gap-1.5">
+          归入分类
+          <select value={category} onChange={(e) => setCategory(e.target.value)} className="bg-zinc-950 border border-zinc-700 rounded px-2 py-1.5 text-sm">
+            {["血统", "改造", "瞳术", "称号", "流派", "典籍", "修炼体系", "技艺", "物品", "随从", "法术", "其他"].map((c) => <option key={c}>{c}</option>)}
+          </select>
+        </label>
+        <button onClick={doParse} disabled={!raw.trim()} className="px-4 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-bold disabled:opacity-40">
+          解析并预览
+        </button>
+        {preview && (
+          <button onClick={confirm} className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-sm font-bold">
+            确认导入({preview.filter((_, i) => !excluded[i]).length} 条)
+          </button>
+        )}
+        <button onClick={onDone} className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-sm">收起</button>
+      </div>
+
+      {preview && (
+        <div className="space-y-1.5 max-h-80 overflow-y-auto">
+          {preview.length === 0 && <div className="text-xs text-red-400">未能解析出任何条目:请检查是否使用 ===== 分隔线或空行分隔多条资源。</div>}
+          {preview.map((e, i) => (
+            <div key={i} className={`border rounded px-3 py-2 text-sm ${excluded[i] ? "border-zinc-800 opacity-40" : "border-zinc-700 bg-zinc-900/70"}`}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  type="checkbox"
+                  checked={!excluded[i]}
+                  onChange={(ev) => setExcluded({ ...excluded, [i]: !ev.target.checked })}
+                />
+                <span className="font-medium">{e.name}</span>
+                <label className="text-[11px] text-zinc-400 flex items-center gap-1">
+                  自动分级:
+                  <select
+                    value={ranks[i] ?? ""}
+                    onChange={(ev) => setRanks({ ...ranks, [i]: ev.target.value })}
+                    className="bg-zinc-950 border border-zinc-700 rounded px-1 py-0.5"
+                  >
+                    <option value="">未分级</option>
+                    {IMPORT_RANKS.map((r) => <option key={r} value={r}>{r}级</option>)}
+                  </select>
+                  <span className="text-zinc-600">(依据:{e.rankSource})</span>
+                </label>
+                {e.price && <span className="text-[11px] text-amber-300">{e.price}</span>}
+                {e.nature && <span className="text-[11px] text-zinc-500">{e.nature}</span>}
+                {e.ranks && <span className="text-[11px] text-indigo-300">阶梯 {e.ranks.map((r) => r.rank).join("/")}</span>}
+                {e.subSkills && <span className="text-[11px] text-emerald-300">子技能 {e.subSkills.length} 个</span>}
+              </div>
+              <div className="text-[11px] text-zinc-600 mt-1 line-clamp-2">{e.text.slice(0, 120)}…</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

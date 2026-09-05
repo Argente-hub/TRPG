@@ -106,6 +106,8 @@ export interface ResourceIndexEntry {
   parentId?: string;
   /** 部件门槛:需要持有资源 family ≥ reqRank 级 */
   gatedBy?: { family: string; familyId: string; reqRank: string };
+  /** 用户从外部导入的自定义资源 */
+  isCustom?: boolean;
 }
 
 export interface SubSkill {
