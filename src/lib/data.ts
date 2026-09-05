@@ -116,6 +116,8 @@ export interface SubSkill {
   rank: string | null;
   price: string | null;
   text: string;
+  /** 分支页内部的等级阶梯(如 修真层级) */
+  ranks?: RankRung[];
 }
 export interface ResourceChunkMeta {
   category: string;

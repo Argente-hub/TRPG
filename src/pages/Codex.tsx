@@ -382,6 +382,43 @@ export default function Codex() {
                         </summary>
                         <div className="px-3 pb-3">
                           <EntryText text={sub.text} />
+                          {/* 分支内部的等级阶梯(如修真层级):按本分支独立购买 */}
+                          {sub.ranks && sub.ranks.length > 0 && (
+                            <div className="mt-2 border border-indigo-800/50 rounded-lg p-2.5 bg-indigo-950/20">
+                              <div className="text-xs font-bold text-indigo-300 mb-1.5">▓本分支等级阶梯:</div>
+                              <div className="space-y-1">
+                                {sub.ranks.map((rung, ri) => {
+                                  const familyId = `${detail.id}_s${i}`;
+                                  const owned = ownedRanksOf(familyId);
+                                  const isOwned = owned.includes(rung.rank);
+                                  return (
+                                    <div key={ri} className="flex items-center gap-2 text-xs bg-zinc-900/70 border border-zinc-800 rounded px-2 py-1 flex-wrap">
+                                      <span className={`text-[10px] px-1 rounded ${isOwned ? "bg-emerald-900/70 text-emerald-300" : "bg-indigo-900/70 text-indigo-300"}`}>
+                                        {rung.rank}{rung.rank.endsWith("层") ? "" : "级"}
+                                      </span>
+                                      {(() => {
+                                        const subTitle = (rung.title || "").replace(/^\S+级\s*/, "").replace(/^[::\s]+/, "").trim();
+                                        return subTitle ? <span className="truncate">{subTitle}</span> : null;
+                                      })()}
+                                      {rung.price && <span className="text-[10px] text-amber-300">{rung.price}</span>}
+                                      <span className="ml-auto">
+                                        {isOwned ? (
+                                          <span className="text-xs text-emerald-400">✓已拥有</span>
+                                        ) : (
+                                          <button
+                                            onClick={() => buyRank(familyId, sub.name, detail.path[0] ?? "资源", rung)}
+                                            className="text-xs px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 font-bold"
+                                          >
+                                            购买此级
+                                          </button>
+                                        )}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
                           <div className="flex gap-2 mt-2">
                             {(() => {
                               // 树条目自身是阶梯资源时,子技能按家族最高等级设门槛
