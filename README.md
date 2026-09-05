@@ -15,6 +15,8 @@ npm run dev        # http://localhost:5173
 
 ## 公网部署
 
+**线上地址:https://argente-hub.github.io/TRPG/**(GitHub Pages,推送到 main 自动重新部署)
+
 纯静态站点(HashRouter + 相对路径),`npm run build` 产物 `dist/`(约 47MB,含数据)
 可部署到任意静态托管平台,任意域名/子路径直接可用。三种方式:
 
