@@ -23,6 +23,10 @@ import {
   QUIRK_MAX,
   QUIRK_XP_EACH,
   CharacterData,
+  skillBonusSuccesses,
+  skillCategoryOf,
+  subSkillBaseOf,
+  skillDisplayName,
 } from "../engine/character";
 import { skillUpCostXp, FEAT_XP_PER_LEVEL, FEAT_XP_PER_LEVEL_EXOTIC } from "../engine/economy";
 
@@ -311,7 +315,6 @@ function DerivedPreview({ ch }: { ch: CharacterData }) {
 
 function StepSkills({ ch, patch, next, prev }: { ch: CharacterData; patch: (fn: (c: CharacterData) => void) => void; next: () => void; prev: () => void }) {
   const [pools, setPools] = useState<Record<AttrCategory, number>>({ 生理: 6, 心智: 5, 互动: 4 });
-  // 特殊身份(高级覆盖低级):效果按实际购买的等级各自生效
   const specialLv = (ch.feats.find((f) => f.name === "特殊身份")?.levels ?? []) as number[];
   const has1 = specialLv.includes(1);
   const has2 = specialLv.includes(2);
@@ -323,9 +326,8 @@ function StepSkills({ ch, patch, next, prev }: { ch: CharacterData; patch: (fn: 
 
   const spendByCat = useMemo(() => {
     const byCat: Record<string, number> = { 生理: 0, 心智: 0, 互动: 0 };
-    for (const s of SKILLS) {
-      const lv = ch.skills[s.name] ?? 0;
-      byCat[s.category] += skillTotalCost(lv);
+    for (const key of Object.keys(ch.skills)) {
+      byCat[skillCategoryOf(key)] += skillTotalCost(ch.skills[key]);
     }
     return byCat;
   }, [ch.skills]);
@@ -336,22 +338,29 @@ function StepSkills({ ch, patch, next, prev }: { ch: CharacterData; patch: (fn: 
   }
   const freeLeft = freeTotal - freeUsed;
 
-  // 免费专业:3/4级技能各1个 + 3个自由
-  const earnedFree = SKILLS.filter((s) => (ch.skills[s.name] ?? 0) >= 3).length;
-  const extraTotal = 3;
-  const extraUsed = Object.entries(ch.specialties).filter(([skill]) => {
-    const def = SKILLS.find((s) => s.name === skill.split("-")[0]);
-    return def && (ch.skills[def.name] ?? 0) >= 1;
-  }).length - Object.entries(ch.specialties).filter(([skill]) => {
-    const def = SKILLS.find((s) => s.name === skill.split("-")[0]);
-    return def && (ch.skills[def.name] ?? 0) >= 3 && (ch.skills[def.name] ?? 0) < 3;
-  }).length;
+  // 免费专业:3/4 级技能各 1 个
+  const earnedFree = Object.keys(ch.skills).filter((n) => (ch.skills[n] ?? 0) >= 3).length;
+
+  const addSubSkill = (base: string) => {
+    if (freeLeft < 1) {
+      alert("技能点不足(新增子技能需 1 点)");
+      return;
+    }
+    const sub = prompt(`新增${base}子技能名称(如 爆炸物):`)?.trim();
+    if (!sub) return;
+    const key = `${base}-${sub}`;
+    if (ch.skills[key] !== undefined) {
+      alert("该子技能已存在");
+      return;
+    }
+    patch((c) => { c.skills[key] = 1; });
+  };
 
   return (
     <div className="border border-zinc-800 rounded-lg p-5 bg-zinc-900/40">
       <h2 className="font-bold mb-1">技能段</h2>
       <p className="text-xs text-zinc-500 mb-4">
-        按系分配 6/5/4 点 + 5 自由点。3→4 每级耗 2。3 级、4 级技能各免费获得 1 个专业,另有 3 个自由专业(需技能 ≥1)。
+        按系分配 6/5/4 点 + 5 自由点。3→4 每级耗 2。3 级、4 级技能各免费获得 1 个专业,另有 3 个自由专业(需技能 ≥1)。专业在各自技能行下添加。
       </p>
 
       <div className="flex gap-3 mb-4 flex-wrap items-center">
@@ -390,92 +399,108 @@ function StepSkills({ ch, patch, next, prev }: { ch: CharacterData; patch: (fn: 
         )}
         {has2 && <span className="text-xs text-amber-400">特殊身份2级:+2自由技能点</span>}
         {has3 && <span className="text-xs text-amber-400">特殊身份3级:+2自由技能点(两项技能各+1,上限4)</span>}
-        {!specialLv.length && <span className="text-xs text-zinc-500">购买特殊身份后在此显示其效果</span>}
       </div>
 
-      {ATTR_CATEGORIES.map((cat) => (
-        <div key={cat} className="mb-3">
-          <div className="text-xs font-bold text-indigo-400 mb-1">{cat}系</div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
-            {SKILLS.filter((s) => s.category === cat).map((s) => (
-              <SkillCell key={s.name} def={s} ch={ch} cap={capOf(s.name)} patch={patch} />
-            ))}
+      {ATTR_CATEGORIES.map((cat) => {
+        const groupSkill = SKILLS.find((s) => s.category === cat && s.sub);
+        const subs = Object.keys(ch.skills).filter((n) => subSkillBaseOf(n) === groupSkill?.name);
+        return (
+          <div key={cat} className="mb-3">
+            <div className="text-xs font-bold text-indigo-400 mb-1">{cat}系</div>
+            <div className="space-y-1">
+              {SKILLS.filter((s) => s.category === cat && !s.sub).map((s) => (
+                <SkillRow key={s.name} name={s.name} ch={ch} cap={capOf(s.name)} patch={patch} />
+              ))}
+              {groupSkill && (
+                <div className="border border-dashed border-zinc-700 rounded px-2 py-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-zinc-400">{groupSkill.name}*(按子技能分别学习)</span>
+                    <button
+                      className="text-xs px-2 py-0.5 rounded bg-zinc-800 hover:bg-indigo-600 disabled:opacity-30 shrink-0"
+                      disabled={freeLeft < 1}
+                      onClick={() => addSubSkill(groupSkill.name)}
+                    >
+                      + 新增子技能(费1)
+                    </button>
+                  </div>
+                  {subs.length > 0 && (
+                    <div className="mt-1 space-y-1">
+                      {subs.map((n) => (
+                        <SkillRow key={n} name={n} ch={ch} cap={capOf(n)} patch={patch} sub />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
-      {/* 专业编辑 */}
-      <div className="border-t border-zinc-800 pt-3 mt-3">
-        <div className="text-xs font-bold text-indigo-400 mb-2">
-          专业(每个 +1DP,同类专业不叠加)。3/4 级技能各含 1 个免费专业;自由专业 3 个。
-        </div>
-        <SpecialtyEditor ch={ch} patch={patch} />
-        <div className="text-xs text-zinc-500 mt-1">
-          已免费获得 {earnedFree} 个(3级+技能),自由专业使用情况见上方编辑器(共 {extraTotal} 个)。
-        </div>
+      <div className="text-xs text-zinc-500 mt-1">
+        免费专业提示:3/4 级技能各含 1 个免费专业(当前 {earnedFree} 个),自由专业 3 个(计入各技能行的专业中,由 ST 校对)。
       </div>
 
+      <DerivedPreview ch={ch} />
       <NavBtns prev={prev} next={next} nextDisabled={freeLeft < 0} />
     </div>
   );
 }
 
-function SkillCell({ def, ch, cap, patch }: { def: SkillDef; ch: CharacterData; cap: number; patch: (fn: (c: CharacterData) => void) => void }) {
-  const lv = ch.skills[def.name] ?? 0;
+function SkillRow({ name, ch, cap, patch, sub }: { name: string; ch: CharacterData; cap: number; patch: (fn: (c: CharacterData) => void) => void; sub?: boolean }) {
+  const lv = ch.skills[name] ?? 0;
+  const specs = ch.specialties[name] ?? [];
+  const bs = skillBonusSuccesses(lv);
+  const displayName = sub ? skillDisplayName(name) : name;
+  const addSpec = () => {
+    const spec = prompt(`为【${displayName}】添加专业:`)?.trim();
+    if (!spec) return;
+    patch((c) => {
+      if (!c.specialties[name]) c.specialties[name] = [];
+      if (!c.specialties[name].includes(spec)) c.specialties[name].push(spec);
+    });
+  };
   return (
-    <div
-      className="flex items-center justify-between bg-zinc-900/70 border border-zinc-800 rounded px-2 py-1.5"
-      title={def.desc}
-    >
-      <span className={`text-xs ${def.sub ? "underline decoration-dotted" : ""}`}>{def.name}{def.sub ? "*" : ""}</span>
-      <Stepper
-        value={lv}
-        min={0}
-        max={cap}
-        name={def.name}
-        onChange={(v) => patch((c) => {
-          if (v === 0) delete c.skills[def.name];
-          else c.skills[def.name] = v;
-        })}
-      />
+    <div className="bg-zinc-900/70 border border-zinc-800 rounded px-2 py-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className={`text-sm ${lv === 0 ? "text-zinc-500" : ""}`}>{displayName}</span>
+        <span className="flex items-center gap-2">
+          {bs > 0 && <span className="text-amber-400 text-[10px]">+{bs}附</span>}
+          <Stepper
+            value={lv}
+            min={0}
+            max={cap}
+            name={name}
+            onChange={(v) => patch((c) => {
+              if (v === 0) delete c.skills[name];
+              else c.skills[name] = v;
+            })}
+          />
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-1 pl-0.5">
+        {specs.map((spec) => (
+          <span key={spec} className="inline-flex items-center gap-1 bg-zinc-800 rounded-full pl-2 pr-1 text-[10px] text-zinc-300">
+            专业:{spec}
+            <button
+              className="text-zinc-500 hover:text-red-400"
+              onClick={() => patch((c) => {
+                c.specialties[name] = c.specialties[name].filter((x) => x !== spec);
+                if (c.specialties[name].length === 0) delete c.specialties[name];
+              })}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <button className="text-[10px] text-zinc-500 hover:text-indigo-400" onClick={addSpec}>
+          +专业
+        </button>
+      </div>
     </div>
   );
 }
 
-function SpecialtyEditor({ ch, patch }: { ch: CharacterData; patch: (fn: (c: CharacterData) => void) => void }) {
-  const list = Object.entries(ch.specialties).flatMap(([skill, specs]) => specs.map((s) => ({ skill, spec: s })));
-  const add = () => {
-    patch((c) => {
-      const skill = prompt("技能名(可带子分类,如 手艺-爆炸物):")?.trim();
-      if (!skill) return;
-      const spec = prompt("专业名:")?.trim();
-      if (!spec) return;
-      if (!c.specialties[skill]) c.specialties[skill] = [];
-      if (!c.specialties[skill].includes(spec)) c.specialties[skill].push(spec);
-    });
-  };
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {list.map(({ skill, spec }) => (
-        <span key={`${skill}-${spec}`} className="inline-flex items-center gap-1 bg-zinc-800 rounded-full pl-2.5 pr-1.5 py-0.5 text-xs">
-          {skill}·{spec}
-          <button
-            className="text-zinc-500 hover:text-red-400"
-            onClick={() => patch((c) => {
-              c.specialties[skill] = c.specialties[skill].filter((s) => s !== spec);
-              if (c.specialties[skill].length === 0) delete c.specialties[skill];
-            })}
-          >
-            ×
-          </button>
-        </span>
-      ))}
-      <button onClick={add} className="text-xs px-2.5 py-0.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400">
-        + 专业
-      </button>
-    </div>
-  );
-}
 
 // ---------------- 步骤4:专长 ----------------
 

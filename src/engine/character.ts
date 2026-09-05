@@ -152,6 +152,26 @@ export function flawPointsToTalentPoints(flawPoints: number): number {
   return Math.floor(flawPoints / 2);
 }
 
+// ---------------- 子技能(手艺/表达) ----------------
+
+/** 若为子技能名(如 "手艺-爆炸物"),返回基础技能名(手艺),否则 null。 */
+export function subSkillBaseOf(name: string): string | null {
+  const m = name.match(/^(手艺|表达)-(.+)$/);
+  return m ? m[1] : null;
+}
+
+/** 技能所属分类(子技能按前缀归类)。 */
+export function skillCategoryOf(name: string): AttrCategory {
+  const base = subSkillBaseOf(name);
+  if (base) return base === "手艺" ? "心智" : "互动";
+  return SKILLS.find((s) => s.name === name)?.category ?? "生理";
+}
+
+/** 子技能显示名:手艺-爆炸物 → 手艺·爆炸物 */
+export function skillDisplayName(name: string): string {
+  return subSkillBaseOf(name) ? name.replace("-", "·") : name;
+}
+
 // ---------------- 角色卡 ----------------
 
 export interface CharacterData {
@@ -366,6 +386,23 @@ export function attrTotal(c: CharacterData, key: AttributeKey): number {
 export function normalizeCharacter(c: Partial<CharacterData> & { id: string; name: string }): CharacterData {
   const base = emptyCharacter(c.id, c.name);
   const merged: CharacterData = { ...base, ...c, attrComponents: c.attrComponents ?? {} };
+  // 旧档迁移:专业键 "手艺-X"/"表达-X" → 独立子技能条目(继承基础技能等级,基础技能归 0)
+  const legacySubs = Object.keys(merged.specialties).filter((k) => subSkillBaseOf(k));
+  const baseSeen = new Set<string>();
+  for (const key of legacySubs) {
+    if (merged.skills[key] === undefined) {
+      const base = key.split("-")[0];
+      if (!baseSeen.has(base)) {
+        merged.skills[key] = merged.skills[base] ?? 0;
+        baseSeen.add(base);
+      } else {
+        merged.skills[key] = 0;
+      }
+    }
+  }
+  for (const base of baseSeen) {
+    merged.skills[base] = 0;
+  }
   // 特殊身份:记录实际购买的等级(高级覆盖低级,效果按已购等级各自生效)
   for (const f of merged.feats) {
     if (f.name === "特殊身份" && !f.levels?.length) {

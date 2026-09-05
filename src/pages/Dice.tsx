@@ -7,6 +7,9 @@ import {
   SKILLS,
   skillBonusSuccesses,
   untrainedPenalty,
+  subSkillBaseOf,
+  skillDisplayName,
+  skillCategoryOf,
 } from "../engine/character";
 import { aggregateDpBonuses } from "../engine/bonus";
 
@@ -37,11 +40,12 @@ export default function Dice() {
   const [last, setLast] = useState<RollLogItem | null>(null);
 
   const skillDef = SKILLS.find((s) => s.name === skill);
+  const skillCat = skillDef?.category ?? (subSkillBaseOf(skill) ? skillCategoryOf(skill) : null);
   const skillLevel = ch?.skills[skill] ?? 0;
   const attrValue = ch?.attributes[attr as keyof typeof ch.attributes] ?? 0;
 
   // 未受训惩罚
-  const untrained = skillLevel === 0 && skillDef ? untrainedPenalty(skillDef.category) : null;
+  const untrained = skillLevel === 0 && skillCat ? untrainedPenalty(skillCat) : null;
 
   const dpBreakdown = useMemo(() => {
     const parts: string[] = [];
@@ -130,6 +134,13 @@ export default function Dice() {
                   ))}
                 </optgroup>
               ))}
+              {ch && Object.keys(ch.skills).filter((n) => subSkillBaseOf(n)).length > 0 && (
+                <optgroup label="子技能(手艺/表达)">
+                  {Object.keys(ch.skills).filter((n) => subSkillBaseOf(n)).map((n) => (
+                    <option key={n} value={n}>{skillDisplayName(n)}({ch.skills[n]})</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </label>
         </div>

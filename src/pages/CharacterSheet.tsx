@@ -8,6 +8,8 @@ import {
   CharacterData,
   SKILLS,
   skillBonusSuccesses,
+  skillCategoryOf,
+  skillDisplayName,
   deriveStats,
   attrTotal,
   MOVE_SLOTS,
@@ -140,28 +142,31 @@ export default function CharacterSheet() {
         }
       >
         <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-0.5">
-          {ATTR_CATEGORIES.map((cat) => (
-            <div key={cat}>
-              <div className="text-xs font-bold text-indigo-400 mb-1">{cat}系</div>
-              <div className="space-y-0.5">
-                {SKILLS.filter((s) => s.category === cat).map((s) => {
-                  const lv = ch.skills[s.name] ?? 0;
-                  const specs = ch.specialties[s.name] ?? [];
-                  const subKeys = Object.keys(ch.specialties).filter((k) => k.startsWith(`${s.name}-`));
-                  return (
-                    <div key={s.name} className={`flex items-center gap-2 rounded px-2 py-1 text-sm border ${lv > 0 ? "border-zinc-700 bg-zinc-900/70" : "border-zinc-800/60 bg-zinc-900/30 text-zinc-500"}`}>
-                      <span>{s.name}</span>
-                      <span className={`font-bold ${lv > 0 ? "text-indigo-300" : ""}`}>{lv}</span>
-                      {skillBonusSuccesses(lv) > 0 && <span className="text-amber-400 text-[10px]">+{skillBonusSuccesses(lv)}附</span>}
-                      <span className="text-xs text-zinc-500 truncate ml-auto" title={[...specs, ...subKeys].join("、")}>
-                        {specs.length + subKeys.length > 0 ? `专业:${[...specs, ...subKeys.map((k) => k.split("-")[1])].join("、")}` : "专业:"}
-                      </span>
-                    </div>
-                  );
-                })}
+          {ATTR_CATEGORIES.map((cat) => {
+            const names = Object.keys(ch.skills).filter((k) => skillCategoryOf(k) === cat);
+            return (
+              <div key={cat}>
+                <div className="text-xs font-bold text-indigo-400 mb-1">{cat}系</div>
+                <div className="space-y-0.5">
+                  {names.length === 0 && <div className="text-xs text-zinc-600">无</div>}
+                  {names.map((name) => {
+                    const lv = ch.skills[name] ?? 0;
+                    const specs = ch.specialties[name] ?? [];
+                    return (
+                      <div key={name} className={`flex items-center gap-2 rounded px-2 py-1 text-sm border ${lv > 0 ? "border-zinc-700 bg-zinc-900/70" : "border-zinc-800/60 bg-zinc-900/30 text-zinc-500"}`}>
+                        <span>{skillDisplayName(name)}</span>
+                        <span className={`font-bold ${lv > 0 ? "text-indigo-300" : ""}`}>{lv}</span>
+                        {skillBonusSuccesses(lv) > 0 && <span className="text-amber-400 text-[10px]">+{skillBonusSuccesses(lv)}附</span>}
+                        <span className="text-xs text-zinc-500 truncate ml-auto" title={specs.join("、")}>
+                          {specs.length > 0 ? `专业:${specs.join("、")}` : "专业:"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
         <button onClick={() => nav(`/builder?id=${ch.id}`)} className="mt-2 text-xs px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700">
           前往建卡向导调整技能/专长
