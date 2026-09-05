@@ -341,7 +341,7 @@ export default function Codex() {
                       return (
                         <div key={i} className="flex items-center gap-2 text-sm bg-zinc-900/70 border border-zinc-800 rounded px-2.5 py-1.5 flex-wrap">
                           <span className={`text-[10px] px-1 rounded ${isOwned ? "bg-emerald-900/70 text-emerald-300" : "bg-indigo-900/70 text-indigo-300"}`}>
-                            {rung.rank}级
+                            {rung.rank}{rung.rank.endsWith("层") ? "" : "级"}
                           </span>
                           {(() => {
                             const subTitle = rung.title.replace(/^\S+级\s*/, "").replace(/^[::\s]+/, "").trim();
