@@ -43,6 +43,7 @@ export default function Codex() {
   const [rank, setRank] = useState<string>("全部");
   const [detail, setDetail] = useState<ResourceEntry | null>(null);
   const [showSubs, setShowSubs] = useState(true);
+  const [showCustom, setShowCustom] = useState(true);
   const { characters, activeId, update } = useCharacters();
   const activeCh = characters.find((c) => c.id === activeId);
 
@@ -64,12 +65,13 @@ export default function Codex() {
     const q = search.trim();
     return allEntries.filter((e) => {
       if (!showSubs && e.isSubSkill) return false;
+      if (!showCustom && e.isCustom) return false;
       if (category !== "全部" && (e.path[0] ?? "其他") !== category) return false;
       if (rank !== "全部" && e.rank !== rank) return false;
       if (q && !e.name.includes(q) && !(e.price ?? "").includes(q) && !e.path.join("/").includes(q)) return false;
       return true;
     });
-  }, [allEntries, search, category, rank]);
+  }, [allEntries, search, category, rank, showSubs, showCustom]);
 
   const categories = useMemo(() => {
     const set = new Set<string>();
@@ -219,6 +221,10 @@ export default function Codex() {
           <input type="checkbox" checked={showSubs} onChange={(e) => setShowSubs(e.target.checked)} />
           显示技能/部件子条目
         </label>
+        <label className="flex items-center gap-1.5 text-xs text-zinc-400">
+          <input type="checkbox" checked={showCustom} onChange={(e) => setShowCustom(e.target.checked)} />
+          显示自定义资源({customEntries.length})
+        </label>
         <button
           onClick={() => setShowImport(!showImport)}
           className="ml-auto px-3 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-sm font-bold"
@@ -230,6 +236,7 @@ export default function Codex() {
       {showImport && (
         <ImportPanel
           onDone={() => setShowImport(false)}
+          onImported={() => setShowCustom(true)}
         />
       )}
 
@@ -466,7 +473,7 @@ function EntryText({ text }: { text: string }) {
 
 // ---------------- 导入资源面板 ----------------
 
-function ImportPanel({ onDone }: { onDone: () => void }) {
+function ImportPanel({ onDone, onImported }: { onDone: () => void; onImported: () => void }) {
   const [raw, setRaw] = useState("");
   const [category, setCategory] = useState("物品");
   const [preview, setPreview] = useState<ParsedEntry[] | null>(null);
@@ -506,6 +513,7 @@ function ImportPanel({ onDone }: { onDone: () => void }) {
     });
     if (list.length === 0) { alert("没有勾选任何条目"); return; }
     addMany(list);
+    onImported();
     alert(`已导入 ${list.length} 条自定义资源(可在列表中以"自定义"徽标识别)`);
     onDone();
   };
