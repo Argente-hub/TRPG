@@ -44,15 +44,15 @@ export interface ParsedEntry {
 }
 
 /**
- * 条目切分:空行与 ===== 分隔线均为分隔符(归一化后统一按两者切分),
- * "====" 标记块本身不会成为条目。
+ * 条目切分(旧版逻辑):存在 ===== 分隔线时仅按分隔线切分;
+ * 无分隔线时按空行切分。
  */
 function splitBlocks(text: string): string[] {
   const norm = text.replace(/\r\n?/g, "\n").replace(/={5,}/g, "\n====\n");
-  return norm
-    .split(/\n\s*====\s*\n|\n{2,}/)
-    .map((b) => b.trim())
-    .filter(Boolean);
+  if (/^\s*====\s*$/m.test(norm)) {
+    return norm.split(/\n\s*====\s*\n/).map((b) => b.trim()).filter(Boolean);
+  }
+  return norm.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
 }
 
 function firstLine(block: string): string {
@@ -76,7 +76,6 @@ function parsePriceOf(btext: string): { rank: string | null; price: string } | n
 
 function subBlocks(block: string): string[] {
   return block
-    .replace(/={5,}/g, "\n\n")
     .split(/\n{2,}/)
     .map((b) => b.trim())
     .filter(Boolean);
@@ -180,68 +179,25 @@ function parseEntryFromBlock(block: string, category: string): ParsedEntry {
 }
 
 /** 把粘贴的外部资源文本解析为条目并自动分级。
- *  分隔:空行与 ===== 均可;不含价格标记的块并入上一条目(保留长文本),
- *  开头的此类块作为标题并入下一条目;连续等级递增(D→C→B→A→S)的条目
- *  自动合并为一个阶梯资源。 */
+ *  分隔(旧版逻辑):存在 ===== 分隔线时仅按分隔线切分;
+ *  无分隔线时按空行切分,且需 ≥2 个含价格的块。 */
 export function parseImportedText(raw: string, category: string): ParsedEntry[] {
   const text = raw.replace(/\r\n?/g, "\n").trim();
   if (!text) return [];
-  const norm = text.replace(/={5,}/g, "\n====\n");
-  const chunks = norm
-    .split(/\n\s*====\s*\n|\n{2,}/)
-    .map((c) => c.trim())
-    .filter(Boolean);
-
-  // 分组:含 价格/等级 标记的块开启新条目,其余并入上一条目(开头的并入下一条目)
-  const groups: string[][] = [];
-  let pending: string[] = [];
-  for (const chunk of chunks) {
-    if (/^=+$/.test(chunk)) continue;
-    const looksLikeEntry = /价格[：:]/.test(chunk) || /等级[：:]/.test(chunk);
-    if (looksLikeEntry) {
-      if (pending.length) {
-        groups.push([...pending, chunk]);
-        pending = [];
-      } else {
-        groups.push([chunk]);
-      }
-    } else if (groups.length === 0) {
-      pending.push(chunk);
-    } else {
-      groups[groups.length - 1].push(chunk);
-    }
+  const hasSep = /={5,}/.test(text);
+  let blocks = splitBlocks(text);
+  // 无显式分隔线时:若按空行分块后有 ≥2 个含价格的块,也按块拆分
+  if (!hasSep && blocks.length === 1) {
+    const blanks = subBlocks(text);
+    const priced = blanks.filter((b) => parsePriceOf(b)).length;
+    if (priced >= 2) blocks = blanks;
   }
-  if (pending.length) groups.push(pending);
-
   const entries: ParsedEntry[] = [];
-  for (const g of groups) {
-    const parsed = parseEntryFromBlock(g.join("\n\n"), category);
+  for (const block of blocks) {
+    const parsed = parseEntryFromBlock(block, category);
     if (!parsed.name || parsed.name.length > 24) continue;
-    if (/^=+$/.test(parsed.name)) continue;
     if (/^(价格|前提|效果|描述|属性)/.test(parsed.name) && parsed.rank === null) continue;
     entries.push(parsed);
   }
-
-  // 阶梯合并:连续条目等级严格递增(D→C→B→A→S)且均无子技能 → 合并为一个阶梯资源
-  const merged: ParsedEntry[] = [];
-  for (const e of entries) {
-    const prev = merged[merged.length - 1];
-    if (
-      prev && !prev.subSkills && !e.subSkills &&
-      prev.rank && e.rank && e.rankSource === "价格" &&
-      IMPORT_RANKS.indexOf(e.rank as MissionRank) === IMPORT_RANKS.indexOf(prev.rank as MissionRank) + 1
-    ) {
-      prev.ranks = [
-        ...(prev.ranks ?? [{ rank: prev.rank, price: prev.price ?? "", title: prev.name, text: prev.text }]),
-        { rank: e.rank, price: e.price ?? "", title: e.name, text: e.text },
-      ];
-      prev.rank = e.rank;
-      prev.price = e.price ?? prev.price;
-      prev.text = `${prev.text}\n\n${e.text}`;
-      prev.rankSource = "阶梯";
-      continue;
-    }
-    merged.push(e);
-  }
-  return merged;
+  return entries;
 }
