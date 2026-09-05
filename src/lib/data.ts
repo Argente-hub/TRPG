@@ -168,20 +168,26 @@ export function loadResourceChunk(category: string): Promise<ResourceChunk | nul
   return load<ResourceChunk>(`res-cat-${category}`, categoryFile(category));
 }
 
-// ---------------- 规则书 ----------------
+// ---------------- 规则书(多版本) ----------------
 
 export interface RuleFileMeta { file: string; title: string }
+export interface RuleVersionMeta { id: string; label: string; source?: string }
 
-export function useRuleList(): RuleFileMeta[] | null {
-  const idx = useCached<{ files: RuleFileMeta[] }>("rules-list", "./data/rules/index.json");
+export function useRuleVersions(): RuleVersionMeta[] {
+  const idx = useCached<{ versions: RuleVersionMeta[] }>("rule-versions", "./data/rules/versions.json");
+  return idx?.versions ?? [];
+}
+
+export function useRuleList(version: string): RuleFileMeta[] | null {
+  const idx = useCached<{ files: RuleFileMeta[] }>(`rules-list-${version}`, `./data/rules/${version}/index.json`);
   return idx?.files ?? null;
 }
 
-export async function loadRuleText(file: string): Promise<string | null> {
-  const key = `rule-${file}`;
+export async function loadRuleText(version: string, file: string): Promise<string | null> {
+  const key = `rule-${version}-${file}`;
   if (cache.has(key)) return cache.get(key) as string;
   try {
-    const res = await fetch(`./data/rules/${encodeURIComponent(file)}`);
+    const res = await fetch(`./data/rules/${version}/${encodeURIComponent(file)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
     cache.set(key, text);

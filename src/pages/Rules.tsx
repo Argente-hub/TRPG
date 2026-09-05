@@ -1,29 +1,70 @@
 import { useEffect, useState } from "react";
-import { useRuleList, loadRuleText, getCachedText, RuleFileMeta } from "../lib/data";
+import {
+  useRuleList,
+  useRuleVersions,
+  loadRuleText,
+  getCachedText,
+  RuleFileMeta,
+} from "../lib/data";
+
+const VERSION_KEY = "wuxian-rules-version";
 
 export default function Rules() {
-  const files = useRuleList();
+  const versions = useRuleVersions();
+  const [versionId, setVersionId] = useState<string>(() => localStorage.getItem(VERSION_KEY) ?? "");
+  // 默认取第一个版本;持久化的版本若不存在也回退
+  useEffect(() => {
+    if (versions.length === 0) return;
+    if (!versions.some((v) => v.id === versionId)) {
+      setVersionId(versions[0].id);
+    }
+  }, [versions, versionId]);
+
+  const files = useRuleList(versionId);
   const [current, setCurrent] = useState<RuleFileMeta | null>(null);
   const [text, setText] = useState<string>("");
   const [search, setSearch] = useState("");
 
+  // 切换版本时清空当前章节
   useEffect(() => {
-    if (!current) return;
-    const cached = getCachedText(`rule-${current.file}`);
+    setCurrent(null);
+    setText("");
+  }, [versionId]);
+
+  useEffect(() => {
+    if (!current || !versionId) return;
+    const cached = getCachedText(`rule-${versionId}-${current.file}`);
     if (cached) {
       setText(cached);
       return;
     }
     setText("加载中…");
-    void loadRuleText(current.file).then((t) => setText(t ?? "加载失败"));
-  }, [current]);
+    void loadRuleText(versionId, current.file).then((t) => setText(t ?? "加载失败"));
+  }, [current, versionId]);
 
+  const selectVersion = (id: string) => {
+    setVersionId(id);
+    localStorage.setItem(VERSION_KEY, id);
+  };
+
+  const currentLabel = versions.find((v) => v.id === versionId)?.label ?? versionId;
   const filtered = (files ?? []).filter((f) => !search || f.title.includes(search));
 
   return (
     <div className="max-w-6xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-4">
       <div className="border border-zinc-800 rounded-lg bg-zinc-900/40 overflow-hidden h-fit lg:sticky lg:top-4">
-        <div className="p-2 border-b border-zinc-800">
+        <div className="p-2 border-b border-zinc-800 space-y-1.5">
+          <select
+            value={versionId}
+            onChange={(e) => selectVersion(e.target.value)}
+            className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-xs font-bold"
+            title="切换规则书版本"
+          >
+            {versions.map((v) => (
+              <option key={v.id} value={v.id}>📘 {v.label}</option>
+            ))}
+            {versions.length === 0 && <option>加载中…</option>}
+          </select>
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -51,11 +92,14 @@ export default function Rules() {
         {current ? (
           <>
             <h1 className="text-xl font-bold mb-3">{current.title}</h1>
+            <div className="text-[11px] text-zinc-600 mb-2">当前版本:{currentLabel}</div>
             <RuleText text={text} />
           </>
         ) : (
           <div className="text-zinc-600 py-16 text-center text-sm">
-            《无限流TRPG正式版3.25》规则书 · 从左侧选择章节阅读
+            {versions.length > 0
+              ? `《${currentLabel}》规则书 · 从左侧选择章节阅读`
+              : "规则书加载中…"}
           </div>
         )}
       </div>
